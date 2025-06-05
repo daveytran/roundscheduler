@@ -11,6 +11,10 @@
     "build": "next build",
     "start": "next dev",
     "lint": "next lint",
+    "lint:fix": "next lint --fix",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,css,md}\"",
+    "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx,json,css,md}\"",
+    "format:write": "prettier --write \"**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "deploy": "next build && next export"
   },
   "dependencies": {
@@ -22,9 +26,11 @@
     "@chakra-ui/system": "^2.0.0",
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",
+    "@monaco-editor/react": "^4.7.0",
     "@types/papaparse": "^5.3.16",
     "autoprefixer": "^10.4.14",
     "framer-motion": "^10.16.4",
+    "monaco-editor": "^0.52.2",
     "next": "^14.0.0",
     "papaparse": "^5.4.1",
     "postcss": "^8.4.21",
@@ -38,8 +44,13 @@
     "@types/node": "^22.15.29",
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.33.1",
+    "@typescript-eslint/parser": "^8.33.1",
     "eslint": "^8.38.0",
     "eslint-config-next": "^14.0.0",
+    "eslint-config-prettier": "^10.1.5",
+    "eslint-plugin-prettier": "^5.4.1",
+    "prettier": "^3.5.3",
     "typescript": "^5.8.3"
   },
   "packageManager": "yarn@1.22.22+sha1.ac34549e6aa8e7ead463a7407e1c7390f61a6610"

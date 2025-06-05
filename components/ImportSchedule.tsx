@@ -33,47 +33,51 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
   const [matches, setMatches] = useState<Match[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showResults, setShowResults] = useState<boolean>(false);
-  
+
   const handleDataImport = (rows: ImportedScheduleRow[]) => {
     try {
       setError(null);
-      
+
       if (rows.length === 0) {
         setError('No valid schedule data found');
         return;
       }
-      
+
       // Initialize teams object if not provided
       const workingTeams = teams || {
         mixed: {},
         gendered: {},
-        cloth: {}
+        cloth: {},
       };
-      
+
       // Convert rows to the format expected by importSchedule utility
       // Create a CSV-like string from the imported data for compatibility with existing logic
-      const csvData = rows.map(row => {
-        const timeSlot = row.timeSlot || row.time || row.round || '';
-        const division = row.division || '';
-        const field = row.field || row.court || row.pitch || '';
-        const team1 = row.team1 || row.homeTeam || row.home || '';
-        const team2 = row.team2 || row.awayTeam || row.away || '';
-        const referee = row.referee || row.refereeTeam || row.teamReferee || '';
-        
-        return [timeSlot, division, field, team1, team2, referee].join(',');
-      }).join('\n');
-      
+      const csvData = rows
+        .map(row => {
+          const timeSlot = row.timeSlot || row.time || row.round || '';
+          const division = row.division || '';
+          const field = row.field || row.court || row.pitch || '';
+          const team1 = row.team1 || row.homeTeam || row.home || '';
+          const team2 = row.team2 || row.awayTeam || row.away || '';
+          const referee = row.referee || row.refereeTeam || row.teamReferee || '';
+
+          return [timeSlot, division, field, team1, team2, referee].join(',');
+        })
+        .join('\n');
+
       // Use existing import logic
       const importedMatches = importSchedule(csvData, workingTeams);
-      
+
       if (importedMatches.length === 0) {
-        setError('No valid matches could be extracted from the data. Please check that team names match your imported players.');
+        setError(
+          'No valid matches could be extracted from the data. Please check that team names match your imported players.'
+        );
         return;
       }
-      
+
       setMatches(importedMatches);
       setShowResults(true);
-      
+
       // Notify parent component
       if (onImportComplete) {
         onImportComplete(importedMatches);
@@ -88,7 +92,7 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
     setError(null);
     setShowResults(false);
   };
-  
+
   // Format time for display
   const formatTimeSlot = (timeSlot: number): string => {
     // Check if timeSlot is a time value (e.g. 930 for 9:30)
@@ -99,11 +103,11 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
     }
     return timeSlot.toString();
   };
-  
+
   return (
     <div className="p-4 bg-white rounded shadow">
       <h2 className="text-xl font-bold mb-4">Import Match Schedule</h2>
-      
+
       {!showResults ? (
         <div>
           <div className="mb-4">
@@ -114,7 +118,7 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
               <br />
               <strong>Optional:</strong> Time/Round, Field/Court, Referee Team
             </p>
-            
+
             {!teams && (
               <div className="p-3 mb-4 bg-yellow-100 border border-yellow-300 text-yellow-700 rounded">
                 <strong>Note:</strong> Import players first to ensure team names can be matched correctly.
@@ -134,7 +138,7 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
               onComplete={({ file, rows }) => {
                 console.log('Schedule import completed:', { file: file.name, rowCount: rows.length });
               }}
-              onError={(error) => {
+              onError={error => {
                 setError(`Import error: ${error.message}`);
               }}
             >
@@ -161,26 +165,19 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
         <div>
           <div className="mb-4 flex justify-between items-center">
             <h3 className="font-bold">Import Successful!</h3>
-            <button
-              onClick={resetImport}
-              className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
-            >
+            <button onClick={resetImport} className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">
               Import New File
             </button>
           </div>
         </div>
       )}
-      
-      {error && (
-        <div className="p-3 mb-4 bg-red-100 border border-red-300 text-red-700 rounded">
-          {error}
-        </div>
-      )}
-      
+
+      {error && <div className="p-3 mb-4 bg-red-100 border border-red-300 text-red-700 rounded">{error}</div>}
+
       {matches.length > 0 && (
         <div>
           <h3 className="font-bold mb-2">Imported {matches.length} Matches</h3>
-          
+
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>

@@ -20,7 +20,14 @@ export class Match {
   division: Division;
   refereeTeam: Team | null; // Team assigned to referee this match
 
-  constructor(team1: Team, team2: Team, timeSlot: number, field: string, division: Division, refereeTeam: Team | null = null) {
+  constructor(
+    team1: Team,
+    team2: Team,
+    timeSlot: number,
+    field: string,
+    division: Division,
+    refereeTeam: Team | null = null
+  ) {
     this.team1 = team1;
     this.team2 = team2;
     this.timeSlot = timeSlot;
@@ -62,7 +69,7 @@ export class Match {
       timeSlot: this.timeSlot,
       field: this.field,
       division: this.division,
-      refereeTeam: this.refereeTeam ? this.refereeTeam.name : null
+      refereeTeam: this.refereeTeam ? this.refereeTeam.name : null,
     };
   }
 }

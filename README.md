@@ -22,12 +22,14 @@ Round Scheduler is a NextJS application for tournament scheduling that allows to
 ### Installation
 
 1. Clone the repository
+
 ```bash
 git clone https://github.com/yourusername/roundscheduler.git
 cd roundscheduler
 ```
 
 2. Install dependencies
+
 ```bash
 npm install
 # or
@@ -35,6 +37,7 @@ yarn install
 ```
 
 3. Start the development server
+
 ```bash
 npm run dev
 # or
@@ -54,6 +57,7 @@ Player Name, Mixed Division Team, Gendered Team, Cloth Team
 ```
 
 You can:
+
 - Paste data directly from a spreadsheet
 - Upload a CSV file
 
@@ -70,12 +74,14 @@ Time Slot, Division, Field, Team 1, Team 2, Referee Team (optional)
 ### 3. Format Options
 
 Choose how you want to format your schedule:
+
 - As imported (sequential time slots)
 - Division blocks (all matches for one division before moving to the next)
 
 ### 4. Configure Rules
 
 Set up and prioritize scheduling rules:
+
 - Avoid back-to-back games
 - Avoid teams having first and last game
 - Avoid teams reffing right before playing
@@ -84,6 +90,7 @@ Set up and prioritize scheduling rules:
 ### 5. Optimize Schedule
 
 Run the optimizer to find a schedule that minimizes rule violations. The optimizer uses simulated annealing to:
+
 - Randomize the schedule while respecting division blocks
 - Evaluate rule violations
 - Progressively improve the schedule

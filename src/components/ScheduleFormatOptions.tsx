@@ -5,7 +5,7 @@ export default function ScheduleFormatOptions({ matches, onFormatApplied }) {
   const [format, setFormat] = useState('as_is');
   const [divisionOrder, setDivisionOrder] = useState('mixed,gendered,cloth');
   const [error, setError] = useState(null);
-  
+
   // Get unique divisions from matches
   const getDivisions = () => {
     if (!matches || matches.length === 0) return [];
@@ -13,43 +13,43 @@ export default function ScheduleFormatOptions({ matches, onFormatApplied }) {
     matches.forEach(match => divSet.add(match.division));
     return Array.from(divSet);
   };
-  
-  const handleFormatChange = (e) => {
+
+  const handleFormatChange = e => {
     setFormat(e.target.value);
   };
-  
-  const handleDivisionOrderChange = (e) => {
+
+  const handleDivisionOrderChange = e => {
     setDivisionOrder(e.target.value);
   };
-  
+
   const handleApplyFormat = () => {
     try {
       setError(null);
-      
+
       if (!matches || matches.length === 0) {
         setError('No matches available to format');
         return;
       }
-      
+
       let formattedMatches = [...matches];
-      
+
       // Apply selected format
       switch (format) {
         case 'division_blocks':
           // Validate division order
           const divisions = getDivisions();
           const orderedDivs = divisionOrder.split(',').map(d => d.trim());
-          
+
           // Check that all divisions are accounted for
           const missingDivs = divisions.filter(d => !orderedDivs.includes(d));
           if (missingDivs.length > 0) {
             setError(`Division order is missing: ${missingDivs.join(', ')}`);
             return;
           }
-          
+
           formattedMatches = createDivisionBlocks([...matches], divisionOrder);
           break;
-          
+
         case 'as_is':
         default:
           // No formatting needed, just ensure time slots are sequential
@@ -57,30 +57,27 @@ export default function ScheduleFormatOptions({ matches, onFormatApplied }) {
           let timeSlot = 1;
           formattedMatches = formattedMatches.map(match => ({
             ...match,
-            timeSlot: timeSlot++
+            timeSlot: timeSlot++,
           }));
           break;
       }
-      
+
       // Notify parent component
       if (onFormatApplied) {
         onFormatApplied(formattedMatches);
       }
-      
     } catch (err) {
       setError(`Format error: ${err.message}`);
     }
   };
-  
+
   return (
     <div className="p-4 bg-white rounded shadow">
       <h2 className="text-xl font-bold mb-4">Schedule Format Options</h2>
-      
+
       <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Schedule Format
-        </label>
-        
+        <label className="block text-sm font-medium text-gray-700 mb-2">Schedule Format</label>
+
         <div className="space-y-2">
           <label className="flex items-center">
             <input
@@ -93,7 +90,7 @@ export default function ScheduleFormatOptions({ matches, onFormatApplied }) {
             />
             <span>As Imported (Sequential Time Slots)</span>
           </label>
-          
+
           <label className="flex items-center">
             <input
               type="radio"
@@ -107,12 +104,10 @@ export default function ScheduleFormatOptions({ matches, onFormatApplied }) {
           </label>
         </div>
       </div>
-      
+
       {format === 'division_blocks' && (
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Division Order (comma-separated)
-          </label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Division Order (comma-separated)</label>
           <input
             type="text"
             value={divisionOrder}
@@ -120,12 +115,10 @@ export default function ScheduleFormatOptions({ matches, onFormatApplied }) {
             className="w-full p-2 border border-gray-300 rounded"
             placeholder="e.g. mixed,gendered,cloth"
           />
-          <p className="text-xs text-gray-500 mt-1">
-            Available divisions: {getDivisions().join(', ')}
-          </p>
+          <p className="text-xs text-gray-500 mt-1">Available divisions: {getDivisions().join(', ')}</p>
         </div>
       )}
-      
+
       <div className="mb-4">
         <button
           onClick={handleApplyFormat}
@@ -134,19 +127,13 @@ export default function ScheduleFormatOptions({ matches, onFormatApplied }) {
         >
           Apply Format
         </button>
-        
+
         {!matches || matches.length === 0 ? (
-          <span className="ml-2 text-amber-500 text-sm">
-            Import matches first
-          </span>
+          <span className="ml-2 text-amber-500 text-sm">Import matches first</span>
         ) : null}
       </div>
-      
-      {error && (
-        <div className="p-2 mb-4 bg-red-100 border border-red-300 text-red-500 rounded">
-          {error}
-        </div>
-      )}
+
+      {error && <div className="p-2 mb-4 bg-red-100 border border-red-300 text-red-500 rounded">{error}</div>}
     </div>
   );
 }

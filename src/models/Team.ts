@@ -1,6 +1,6 @@
 import { Player } from './Player';
 
-export type Division = "mixed" | "gendered" | "cloth";
+export type Division = 'mixed' | 'gendered' | 'cloth';
 
 export interface TeamsMap {
   mixed: { [teamName: string]: Team };
@@ -37,14 +37,14 @@ export class Team {
     const teams: TeamsMap = {
       mixed: {},
       gendered: {},
-      cloth: {}
+      cloth: {},
     };
 
     players.forEach(player => {
       // Process mixed division
       if (player.mixedTeam) {
         if (!teams.mixed[player.mixedTeam]) {
-          teams.mixed[player.mixedTeam] = new Team(player.mixedTeam, "mixed");
+          teams.mixed[player.mixedTeam] = new Team(player.mixedTeam, 'mixed');
         }
         teams.mixed[player.mixedTeam].addPlayer(player);
       }
@@ -52,7 +52,7 @@ export class Team {
       // Process gendered division
       if (player.genderedTeam) {
         if (!teams.gendered[player.genderedTeam]) {
-          teams.gendered[player.genderedTeam] = new Team(player.genderedTeam, "gendered");
+          teams.gendered[player.genderedTeam] = new Team(player.genderedTeam, 'gendered');
         }
         teams.gendered[player.genderedTeam].addPlayer(player);
       }
@@ -60,7 +60,7 @@ export class Team {
       // Process cloth division
       if (player.clothTeam) {
         if (!teams.cloth[player.clothTeam]) {
-          teams.cloth[player.clothTeam] = new Team(player.clothTeam, "cloth");
+          teams.cloth[player.clothTeam] = new Team(player.clothTeam, 'cloth');
         }
         teams.cloth[player.clothTeam].addPlayer(player);
       }
