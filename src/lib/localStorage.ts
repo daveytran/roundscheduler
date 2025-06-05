@@ -1,16 +1,39 @@
-interface AppData {
-  players: any[];
-  teams: any;
-  matches: any[];
-  formattedMatches: any[];
-  schedulingRules: any[];
-  schedule: any;
-  lastUpdated: string;
+import { Player } from '../models/Player';
+import { TeamsMap } from '../models/Team';
+import { Match } from '../models/Match';
+
+export interface StoredData {
+  players?: Player[];
+  teams?: TeamsMap;
+  matches?: Match[];
+  formattedMatches?: Match[];
+  schedulingRules?: any[];
+  schedule?: any;
+  ruleConfigurations?: RuleConfigurationData[];
+  optimizerSettings?: OptimizerSettings;
+  lastUpdated?: string;
 }
 
-const STORAGE_KEY = 'roundscheduler_data';
+export interface RuleConfigurationData {
+  id: string;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  type: 'builtin' | 'custom';
+  category: 'team' | 'player';
+  configuredParams?: { [key: string]: any };
+  code?: string; // for custom rules
+}
 
-export const saveToLocalStorage = (data: Partial<AppData>) => {
+export interface OptimizerSettings {
+  iterations: number;
+}
+
+const STORAGE_KEY = 'roundSchedulerData';
+
+export function saveToLocalStorage(data: Partial<StoredData>): void {
+  if (typeof window === 'undefined') return;
+
   try {
     const existingData = loadFromLocalStorage();
     const updatedData = {
@@ -20,63 +43,55 @@ export const saveToLocalStorage = (data: Partial<AppData>) => {
     };
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedData));
-    return true;
   } catch (error) {
-    console.error('Failed to save to localStorage:', error);
-    return false;
+    console.error('Error saving to localStorage:', error);
   }
-};
+}
 
-export const loadFromLocalStorage = (): AppData => {
+export function loadFromLocalStorage(): StoredData {
+  if (typeof window === 'undefined') return {};
+
   try {
-    const data = localStorage.getItem(STORAGE_KEY);
-    if (data) {
-      return JSON.parse(data);
-    }
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? JSON.parse(stored) : {};
   } catch (error) {
-    console.error('Failed to load from localStorage:', error);
+    console.error('Error loading from localStorage:', error);
+    return {};
   }
+}
 
-  return {
-    players: [],
-    teams: null,
-    matches: [],
-    formattedMatches: [],
-    schedulingRules: [],
-    schedule: null,
-    lastUpdated: '',
-  };
-};
+export function clearLocalStorage(): void {
+  if (typeof window === 'undefined') return;
 
-export const clearLocalStorage = () => {
   try {
     localStorage.removeItem(STORAGE_KEY);
-    return true;
   } catch (error) {
-    console.error('Failed to clear localStorage:', error);
+    console.error('Error clearing localStorage:', error);
+  }
+}
+
+export function hasStoredData(): boolean {
+  if (typeof window === 'undefined') return false;
+
+  try {
+    return localStorage.getItem(STORAGE_KEY) !== null;
+  } catch {
     return false;
   }
-};
+}
 
-export const hasStoredData = (): boolean => {
-  try {
-    const data = localStorage.getItem(STORAGE_KEY);
-    return data !== null && data !== '';
-  } catch (error) {
-    return false;
-  }
-};
+export function getStorageSize(): string {
+  if (typeof window === 'undefined') return '0 KB';
 
-export const getStorageSize = (): string => {
   try {
-    const data = localStorage.getItem(STORAGE_KEY);
-    if (data) {
-      const sizeInBytes = new Blob([data]).size;
-      const sizeInKB = (sizeInBytes / 1024).toFixed(1);
-      return `${sizeInKB} KB`;
-    }
-  } catch (error) {
-    console.error('Failed to calculate storage size:', error);
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) return '0 KB';
+
+    const bytes = new Blob([stored]).size;
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  } catch {
+    return 'Unknown';
   }
-  return '0 KB';
-};
+}

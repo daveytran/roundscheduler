@@ -132,16 +132,18 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
 
       // Convert rows to the format expected by importSchedule utility
       // Create a CSV-like string from the imported data for compatibility with existing logic
+      // Format: Round, Division, Time, Team1, Team2, Court, Referee (7 columns)
       const csvData = rows
         .map(row => {
-          const timeSlot = row.timeSlot || row.time || row.round || '';
+          const round = row.round || '';
           const division = row.division || '';
-          const field = row.field || row.court || row.pitch || '';
+          const time = row.timeSlot || row.time || '';
           const team1 = row.team1 || row.homeTeam || row.home || '';
           const team2 = row.team2 || row.awayTeam || row.away || '';
+          const field = row.field || row.court || row.pitch || '';
           const referee = row.referee || row.refereeTeam || row.teamReferee || '';
 
-          return [timeSlot, division, field, team1, team2, referee].join(',');
+          return [round, division, time, team1, team2, field, referee].join(',');
         })
         .join('\n');
 

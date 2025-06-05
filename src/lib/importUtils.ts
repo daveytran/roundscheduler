@@ -1,14 +1,17 @@
-import Papa from 'papaparse';
+import * as Papa from 'papaparse';
 import { Player } from '../models/Player';
-import { Team } from '../models/Team';
+import { Team, Division, TeamsMap } from '../models/Team';
 import { Match } from '../models/Match';
+
+// Type for CSV row data
+type CSVRow = (string | null)[];
 
 /**
  * Parse CSV data from string
  * @param {string} csvString - CSV data as string
  * @returns {Array} Parsed data
  */
-export function parseCSV(csvString) {
+export function parseCSV(csvString: string): CSVRow[] {
   const result = Papa.parse(csvString, {
     skipEmptyLines: true,
     header: false,
@@ -18,7 +21,7 @@ export function parseCSV(csvString) {
     throw new Error(`Error parsing CSV: ${result.errors[0].message}`);
   }
 
-  return result.data;
+  return result.data as CSVRow[];
 }
 
 /**
@@ -26,7 +29,7 @@ export function parseCSV(csvString) {
  * @param {string} csvString - CSV data as string
  * @returns {Array} Array of Player objects
  */
-export function importPlayers(csvString) {
+export function importPlayers(csvString: string): Player[] {
   const data = parseCSV(csvString);
 
   // Skip header row if it exists
@@ -42,7 +45,7 @@ export function importPlayers(csvString) {
  * @param {Object} teamsMap - Map of team names to Team objects by division
  * @returns {Array} Array of Match objects
  */
-export function importSchedule(csvString, teamsMap) {
+export function importSchedule(csvString: string, teamsMap: TeamsMap): Match[] {
   const data = parseCSV(csvString);
 
   // Skip header row if it exists
@@ -50,13 +53,14 @@ export function importSchedule(csvString, teamsMap) {
   let scheduleData = hasHeader ? data.slice(1) : data;
 
   // Filter out empty rows and special rows (SETUP, PACKING DOWN)
-  scheduleData = scheduleData.filter(row => {
+  scheduleData = scheduleData.filter((row: CSVRow) => {
     // Skip completely empty rows
-    if (row.every(cell => !cell || cell.trim() === '')) return false;
+    if (row.every((cell: string | null) => !cell || cell.trim() === '')) return false;
 
     // Check if this is a special row like SETUP or PACKING DOWN
     const isSpecialRow = row.some(
-      cell => cell && typeof cell === 'string' && (cell.includes('SETUP') || cell.includes('PACKING DOWN'))
+      (cell: string | null) =>
+        cell && typeof cell === 'string' && (cell.includes('SETUP') || cell.includes('PACKING DOWN'))
     );
 
     return !isSpecialRow;
@@ -71,16 +75,17 @@ export function importSchedule(csvString, teamsMap) {
  * @param {Object} teamsMap - Map of team names to Team objects by division
  * @returns {Array} Array of Match objects
  */
-function processScheduleFormat(scheduleData, teamsMap) {
-  const matches = [];
+function processScheduleFormat(scheduleData: CSVRow[], teamsMap: TeamsMap): Match[] {
+  const matches: Match[] = [];
   let currentDivision = '';
   let timeSlotCounter = 1;
+  const timeToSlotMap = new Map<string, number>(); // Track time strings to slot numbers
 
   for (let i = 0; i < scheduleData.length; i++) {
     const row = scheduleData[i];
 
     // Skip rows that are too short
-    if (row.length < 6) continue;
+    if (row.length < 5) continue;
 
     // Check if this row contains a division header
     if (row[0] && !row[2] && !row[3] && row[0] !== 'Round') {
@@ -89,73 +94,134 @@ function processScheduleFormat(scheduleData, teamsMap) {
     }
 
     // Format detection and extraction
-    let division, time, team1, team2, field, refereeTeam;
+    let division: string, time: string, team1: string, team2: string, field: string, refereeTeam: string;
 
-    // Try to detect if this is the tournament-specific format
-    if (row[0] === '' && row[1] && row[2] && row[3] && row[4]) {
-      // This is likely the tournament format where div is in column 1
-      division = (row[1] || currentDivision || '').toLowerCase();
-      time = row[2] || '';
-      team1 = row[3] || '';
-      team2 = row[4] || '';
-      field = row[5] || '';
-      refereeTeam = row[6] || '';
-    } else {
-      // Try generic format or fallback
-      division = (row[1] || currentDivision || '').toLowerCase();
-      time = row[2] || '';
-      team1 = row[3] || '';
-      team2 = row[4] || '';
-      field = row[5] || '';
-      refereeTeam = row[6] || '';
+    // Handle the specific format: Round, Division, Time, Team1, Team2, Court, Referee
+    // where Round column might be empty for subsequent rows
+    if (row.length >= 6) {
+      // Check if this looks like the tournament format:
+      // Column 0: Round (can be empty)
+      // Column 1: Division
+      // Column 2: Time
+      // Column 3: Team 1
+      // Column 4: Team 2
+      // Column 5: Court/Field
+      // Column 6: Referee (optional)
 
-      // If division is empty or doesn't match expected format, try different column mapping
-      if (!division || !division.match(/^(mx|m|w)/i)) {
-        const firstCol = (row[0] || '').toLowerCase();
-        if (firstCol.match(/^(mx|m|w)/i)) {
-          // Division is in first column
-          division = firstCol;
-          // Shift other columns if needed
-          if (!time && row[1]) time = row[1];
-          if (!team1 && row[2]) team1 = row[2];
-          if (!team2 && row[3]) team2 = row[3];
-          if (!field && row[4]) field = row[4];
-          if (!refereeTeam && row[5]) refereeTeam = row[5];
+      const possibleDivision = (row[1] || '').toLowerCase();
+      const possibleTime = row[2] || '';
+      const possibleTeam1 = row[3] || '';
+      const possibleTeam2 = row[4] || '';
+
+      // If we have teams in columns 3 and 4, use this format
+      if (possibleTeam1 && possibleTeam2) {
+        division = possibleDivision || currentDivision || '';
+        time = possibleTime;
+        team1 = possibleTeam1;
+        team2 = possibleTeam2;
+        field = row[5] || '';
+        refereeTeam = row[6] || '';
+      } else {
+        // Fallback: try to detect columns automatically
+        let divIndex = -1,
+          timeIndex = -1,
+          team1Index = -1,
+          team2Index = -1,
+          fieldIndex = -1,
+          refIndex = -1;
+
+        // Find division column (contains mx, m, w patterns)
+        for (let j = 0; j < Math.min(3, row.length); j++) {
+          const cellValue = (row[j] || '').toLowerCase();
+          if (cellValue.match(/^(mx|m\d|w)/) && divIndex === -1) {
+            divIndex = j;
+            break;
+          }
         }
+
+        // Find time column (contains : pattern)
+        for (let j = 0; j < row.length; j++) {
+          const cellValue = row[j] || '';
+          if (cellValue.includes(':') && timeIndex === -1) {
+            timeIndex = j;
+            break;
+          }
+        }
+
+        // Find team columns (look for non-empty strings after time)
+        for (let j = Math.max(divIndex + 1, timeIndex + 1); j < row.length; j++) {
+          const cellValue = row[j] || '';
+          if (cellValue && team1Index === -1) {
+            team1Index = j;
+          } else if (cellValue && team2Index === -1) {
+            team2Index = j;
+            break;
+          }
+        }
+
+        // Field is typically right after team2
+        if (team2Index >= 0 && team2Index + 1 < row.length) {
+          fieldIndex = team2Index + 1;
+        }
+
+        // Referee is typically after field
+        if (fieldIndex >= 0 && fieldIndex + 1 < row.length) {
+          refIndex = fieldIndex + 1;
+        }
+
+        division = divIndex >= 0 ? (row[divIndex] || currentDivision || '').toLowerCase() : '';
+        time = timeIndex >= 0 ? row[timeIndex] || '' : '';
+        team1 = team1Index >= 0 ? row[team1Index] || '' : '';
+        team2 = team2Index >= 0 ? row[team2Index] || '' : '';
+        field = fieldIndex >= 0 ? row[fieldIndex] || '' : '';
+        refereeTeam = refIndex >= 0 ? row[refIndex] || '' : '';
       }
+    } else {
+      // Skip rows with insufficient data
+      continue;
     }
 
     // Skip if essential data is missing
     if (!division || !team1 || !team2) continue;
 
     // Normalize division format (mx1, mx2, m1, m2, w)
-    let normalizedDivision = division.toLowerCase();
-    if (normalizedDivision.startsWith('mx')) {
+    let normalizedDivision: Division = 'mixed'; // Default to mixed
+    if (division.toLowerCase().startsWith('mx')) {
       normalizedDivision = 'mixed';
-    } else if (normalizedDivision.startsWith('m')) {
+    } else if (division.toLowerCase().startsWith('m')) {
       normalizedDivision = 'gendered';
-    } else if (normalizedDivision.startsWith('w')) {
+    } else if (division.toLowerCase().startsWith('w')) {
       normalizedDivision = 'gendered';
     } else {
       // Use division from context if available
-      normalizedDivision = currentDivision || 'mixed';
-    }
-
-    // Convert time to slot number if it's a time string
-    let timeSlot = timeSlotCounter++;
-    if (time && time.includes(':')) {
-      // It's a time string, convert to numerical order
-      const timeParts = time.split(':');
-      if (timeParts.length === 2) {
-        const hours = parseInt(timeParts[0]);
-        const minutes = parseInt(timeParts[1]);
-        // Create a time value for sorting (e.g., 9:30 becomes 930)
-        timeSlot = hours * 100 + minutes;
+      const contextDiv = currentDivision.toLowerCase();
+      if (contextDiv.startsWith('mx') || contextDiv === 'mixed') {
+        normalizedDivision = 'mixed';
+      } else if (contextDiv.startsWith('m') || contextDiv.startsWith('w') || contextDiv === 'gendered') {
+        normalizedDivision = 'gendered';
+      } else if (contextDiv === 'cloth') {
+        normalizedDivision = 'cloth';
       }
     }
 
+    // Convert time to slot number, ensuring matches with same time get same slot
+    let timeSlot: number;
+    if (time && time.trim() !== '') {
+      // Use existing slot if this time has been seen before
+      if (timeToSlotMap.has(time)) {
+        timeSlot = timeToSlotMap.get(time)!;
+      } else {
+        // New time, assign next sequential slot number and store mapping
+        timeSlot = timeSlotCounter++;
+        timeToSlotMap.set(time, timeSlot);
+      }
+    } else {
+      // No time provided, use sequential counter
+      timeSlot = timeSlotCounter++;
+    }
+
     // Look up teams in the team map
-    let divTeams = teamsMap[normalizedDivision] || {};
+    const divTeams = teamsMap[normalizedDivision] || {};
 
     // Create teams if they don't exist in the map
     if (!divTeams[team1]) {
@@ -167,7 +233,7 @@ function processScheduleFormat(scheduleData, teamsMap) {
     }
 
     // Look up referee team if provided
-    let refTeam = null;
+    let refTeam: Team | null = null;
     if (refereeTeam && refereeTeam !== '-') {
       // Extract team name if it has division in parentheses, e.g., "Team Name (MX)"
       const refTeamName = refereeTeam.split('(')[0].trim();
@@ -177,8 +243,9 @@ function processScheduleFormat(scheduleData, teamsMap) {
       } else {
         // Try to find the referee team in any division
         for (const div in teamsMap) {
-          if (teamsMap[div][refTeamName]) {
-            refTeam = teamsMap[div][refTeamName];
+          const divKey = div as keyof TeamsMap;
+          if (teamsMap[divKey][refTeamName]) {
+            refTeam = teamsMap[divKey][refTeamName];
             break;
           }
         }
@@ -224,12 +291,15 @@ function processScheduleFormat(scheduleData, teamsMap) {
  * @param {Array} row - Row data
  * @returns {boolean} True if row appears to be a header
  */
-function isHeaderRow(row) {
+function isHeaderRow(row: CSVRow): boolean {
   if (!row || row.length === 0) return false;
 
   // Check if first value is a non-numeric string like "Name" or "Player"
   const firstCell = String(row[0]).toLowerCase();
-  return isNaN(firstCell) && (firstCell.includes('name') || firstCell.includes('player') || firstCell.includes('team'));
+  return (
+    Number.isNaN(Number(firstCell)) &&
+    (firstCell.includes('name') || firstCell.includes('player') || firstCell.includes('team'))
+  );
 }
 
 /**
@@ -237,7 +307,7 @@ function isHeaderRow(row) {
  * @param {Array} row - Row data
  * @returns {boolean} True if row appears to be a header
  */
-function isScheduleHeaderRow(row) {
+function isScheduleHeaderRow(row: CSVRow): boolean {
   if (!row || row.length === 0) return false;
 
   // Check for common schedule header columns

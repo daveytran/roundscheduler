@@ -1,24 +1,30 @@
 import React, { useState } from 'react';
 import { createDivisionBlocks } from '../lib/scheduler';
+import { Match } from '../models/Match';
 
-export default function ScheduleFormatOptions({ matches, onFormatApplied }) {
+interface ScheduleFormatOptionsProps {
+  matches: Match[];
+  onFormatApplied: (formattedMatches: Match[]) => void;
+}
+
+export default function ScheduleFormatOptions({ matches, onFormatApplied }: ScheduleFormatOptionsProps) {
   const [format, setFormat] = useState('as_is');
   const [divisionOrder, setDivisionOrder] = useState('mixed,gendered,cloth');
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
 
   // Get unique divisions from matches
-  const getDivisions = () => {
+  const getDivisions = (): string[] => {
     if (!matches || matches.length === 0) return [];
-    const divSet = new Set();
-    matches.forEach(match => divSet.add(match.division));
+    const divSet = new Set<string>();
+    matches.forEach((match: Match) => divSet.add(match.division));
     return Array.from(divSet);
   };
 
-  const handleFormatChange = e => {
+  const handleFormatChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormat(e.target.value);
   };
 
-  const handleDivisionOrderChange = e => {
+  const handleDivisionOrderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setDivisionOrder(e.target.value);
   };
 
@@ -41,7 +47,7 @@ export default function ScheduleFormatOptions({ matches, onFormatApplied }) {
           const orderedDivs = divisionOrder.split(',').map(d => d.trim());
 
           // Check that all divisions are accounted for
-          const missingDivs = divisions.filter(d => !orderedDivs.includes(d));
+          const missingDivs = divisions.filter((d: string) => !orderedDivs.includes(d));
           if (missingDivs.length > 0) {
             setError(`Division order is missing: ${missingDivs.join(', ')}`);
             return;
@@ -55,10 +61,17 @@ export default function ScheduleFormatOptions({ matches, onFormatApplied }) {
           // No formatting needed, just ensure time slots are sequential
           formattedMatches.sort((a, b) => a.timeSlot - b.timeSlot);
           let timeSlot = 1;
-          formattedMatches = formattedMatches.map(match => ({
-            ...match,
-            timeSlot: timeSlot++,
-          }));
+          formattedMatches = formattedMatches.map(match => {
+            const newMatch = new Match(
+              match.team1,
+              match.team2,
+              timeSlot++,
+              match.field,
+              match.division,
+              match.refereeTeam
+            );
+            return newMatch;
+          });
           break;
       }
 
@@ -67,7 +80,8 @@ export default function ScheduleFormatOptions({ matches, onFormatApplied }) {
         onFormatApplied(formattedMatches);
       }
     } catch (err) {
-      setError(`Format error: ${err.message}`);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+      setError(`Format error: ${errorMessage}`);
     }
   };
 

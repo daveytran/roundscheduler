@@ -1,20 +1,64 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Schedule } from '../models/Schedule';
+import { Match } from '../models/Match';
+import { ScheduleRule } from '../models/ScheduleRule';
 import { optimizeSchedule } from '../lib/scheduler';
+import { OptimizerSettings } from '../lib/localStorage';
 
-export default function ScheduleOptimizer({ matches, rules, onOptimizationComplete }) {
+// Type for the progress callback info
+interface OptimizationProgressInfo {
+  iteration: number;
+  progress: number;
+  currentScore: number;
+  bestScore: number;
+  temperature: number;
+  violations: any[];
+}
+
+// Props interface
+interface ScheduleOptimizerProps {
+  matches: Match[];
+  rules: ScheduleRule[];
+  initialSettings?: OptimizerSettings;
+  onSettingsChange?: (settings: OptimizerSettings) => void;
+  onOptimizationComplete?: (schedule: Schedule) => void;
+}
+
+export default function ScheduleOptimizer({
+  matches,
+  rules,
+  initialSettings,
+  onSettingsChange,
+  onOptimizationComplete,
+}: ScheduleOptimizerProps) {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [iterations, setIterations] = useState(10000);
-  const [currentScore, setCurrentScore] = useState(null);
-  const [bestScore, setBestScore] = useState(null);
-  const [error, setError] = useState(null);
+  const [iterations, setIterations] = useState(initialSettings?.iterations || 10000);
+  const [originalScore, setOriginalScore] = useState<number | null>(null);
+  const [currentScore, setCurrentScore] = useState<number | null>(null);
+  const [bestScore, setBestScore] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Update iterations when initialSettings change
+  useEffect(() => {
+    if (initialSettings) {
+      setIterations(initialSettings.iterations);
+    }
+  }, [initialSettings]);
+
+  // Save settings when iterations change
+  useEffect(() => {
+    if (onSettingsChange) {
+      onSettingsChange({ iterations });
+    }
+  }, [iterations, onSettingsChange]);
 
   const handleStartOptimization = async () => {
     try {
       setError(null);
       setIsOptimizing(true);
       setProgress(0);
+      setOriginalScore(null);
       setCurrentScore(null);
       setBestScore(null);
 
@@ -26,18 +70,26 @@ export default function ScheduleOptimizer({ matches, rules, onOptimizationComple
         throw new Error('No rules configured for optimization');
       }
 
+      // Validate that rules have proper evaluate methods
+      const invalidRules = rules.filter(rule => !rule || typeof rule.evaluate !== 'function');
+      if (invalidRules.length > 0) {
+        throw new Error('Some rules are not properly initialized. Please visit the Rules tab first to configure them.');
+      }
+
       // Create a new schedule with the provided matches and rules
       const schedule = new Schedule(matches, rules);
 
-      // Initial evaluation
+      // Initial evaluation to get the original score
       schedule.evaluate();
-      setCurrentScore(schedule.score);
-      setBestScore(schedule.score);
+      const originalScheduleScore = schedule.score;
+      setOriginalScore(originalScheduleScore);
+      setCurrentScore(originalScheduleScore);
+      setBestScore(originalScheduleScore);
 
       // Optimize the schedule
       const optimized = await optimizeSchedule(schedule, {
         iterations,
-        progressCallback: info => {
+        progressCallback: (info: OptimizationProgressInfo) => {
           setProgress(info.progress);
           setCurrentScore(info.currentScore);
           setBestScore(info.bestScore);
@@ -52,10 +104,16 @@ export default function ScheduleOptimizer({ matches, rules, onOptimizationComple
         onOptimizationComplete(optimized);
       }
     } catch (err) {
-      setError(`Optimization error: ${err.message}`);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+      setError(`Optimization error: ${errorMessage}`);
     } finally {
       setIsOptimizing(false);
     }
+  };
+
+  const handleIterationsChange = (value: string) => {
+    const newIterations = Math.max(1000, Math.min(100000, parseInt(value) || 10000));
+    setIterations(newIterations);
   };
 
   return (
@@ -64,8 +122,9 @@ export default function ScheduleOptimizer({ matches, rules, onOptimizationComple
 
       <div className="mb-4">
         <p className="text-sm text-gray-600 mb-2">
-          The optimizer will attempt to minimize rule violations using simulated annealing. Higher iteration counts will
-          produce better results but take longer.
+          The optimizer will attempt to minimize rule violations using simulated annealing. It shuffles match time slots
+          and referee assignments to find better arrangements. Higher iteration counts will produce better results but
+          take longer.
         </p>
 
         <div className="flex items-center gap-4 mb-4">
@@ -74,7 +133,7 @@ export default function ScheduleOptimizer({ matches, rules, onOptimizationComple
             <input
               type="number"
               value={iterations}
-              onChange={e => setIterations(Math.max(1000, Math.min(100000, parseInt(e.target.value) || 10000)))}
+              onChange={e => handleIterationsChange(e.target.value)}
               min="1000"
               max="100000"
               step="1000"
@@ -106,13 +165,48 @@ export default function ScheduleOptimizer({ matches, rules, onOptimizationComple
           </div>
         )}
 
-        {(currentScore !== null || bestScore !== null) && (
+        {(originalScore !== null || currentScore !== null || bestScore !== null) && (
           <div className="p-3 bg-gray-50 border rounded">
-            <h3 className="font-bold mb-1">Optimization Results</h3>
-            {currentScore !== null && <p className="text-sm">Current Score: {currentScore}</p>}
-            {bestScore !== null && (
-              <p className="text-sm">
-                Best Score: {bestScore} {bestScore === 0 ? '(Perfect schedule!)' : ''}
+            <h3 className="font-bold mb-2">Optimization Results</h3>
+
+            {originalScore !== null && (
+              <div className="mb-2">
+                <p className="text-sm">
+                  <span className="font-medium">Original Score:</span> {originalScore}
+                  {originalScore === 0 ? ' (Already perfect!)' : ''}
+                </p>
+              </div>
+            )}
+
+            {bestScore !== null && originalScore !== null && (
+              <div className="mb-2">
+                <p className="text-sm">
+                  <span className="font-medium">Best Score:</span> {bestScore}
+                  {bestScore === 0 ? ' 🎉 (Perfect schedule!)' : ''}
+                </p>
+
+                {originalScore !== bestScore && (
+                  <div className="mt-1">
+                    <p className="text-xs text-green-700 bg-green-50 px-2 py-1 rounded">
+                      ✅ Improvement: {originalScore - bestScore} points (
+                      {Math.round(((originalScore - bestScore) / originalScore) * 100)}% better)
+                    </p>
+                  </div>
+                )}
+
+                {originalScore === bestScore && originalScore > 0 && (
+                  <div className="mt-1">
+                    <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded">
+                      ⚠️ No improvement found - try more iterations or adjust rules
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {isOptimizing && currentScore !== null && (
+              <p className="text-sm text-gray-600">
+                <span className="font-medium">Current Score:</span> {currentScore}
               </p>
             )}
           </div>

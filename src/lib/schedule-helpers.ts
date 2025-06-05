@@ -4,6 +4,7 @@
  */
 
 import { Match } from '../models/Match';
+import { Player } from '../models/Player';
 import { RuleViolation } from '../models/RuleViolation';
 import { Schedule } from '../models/Schedule';
 
@@ -50,6 +51,38 @@ export const ScheduleHelpers = {
   },
 
   /**
+   * Groups matches by player name
+   * @param matches Array of matches to group
+   * @returns Object with player names as keys and match arrays as values
+   */
+  groupMatchesByPlayer(matches: Match[]): Record<string, Match[]> {
+    const playerMatches: Record<string, Match[]> = {};
+
+    matches.forEach(match => {
+      // Get all players from both teams
+      const allPlayers = [...match.team1.players, ...match.team2.players];
+
+      allPlayers.forEach(player => {
+        if (!playerMatches[player.name]) {
+          playerMatches[player.name] = [];
+        }
+        playerMatches[player.name].push(match);
+      });
+    });
+
+    return playerMatches;
+  },
+
+  /**
+   * Gets all players participating in a specific match
+   * @param match The match to extract players from
+   * @returns Array of players in the match
+   */
+  getPlayersInMatch(match: Match): Player[] {
+    return [...match.team1.players, ...match.team2.players];
+  },
+
+  /**
    * Gets all matches for a specific team
    * @param schedule The schedule to search
    * @param teamName Name of the team
@@ -57,6 +90,19 @@ export const ScheduleHelpers = {
    */
   getTeamMatches(schedule: Schedule, teamName: string): Match[] {
     return schedule.matches.filter(match => match.team1.name === teamName || match.team2.name === teamName);
+  },
+
+  /**
+   * Gets all matches for a specific player
+   * @param schedule The schedule to search
+   * @param playerName Name of the player
+   * @returns Array of matches involving this player
+   */
+  getPlayerMatches(schedule: Schedule, playerName: string): Match[] {
+    return schedule.matches.filter(match => {
+      const allPlayers = [...match.team1.players, ...match.team2.players];
+      return allPlayers.some(player => player.name === playerName);
+    });
   },
 
   /**
@@ -105,66 +151,48 @@ export const ScheduleHelpers = {
   },
 
   /**
-   * Gets matches in a specific time slot
-   * @param schedule The schedule to search
-   * @param timeSlot The time slot to filter by
-   * @returns Array of matches in the specified time slot
-   */
-  getMatchesInTimeSlot(schedule: Schedule, timeSlot: number): Match[] {
-    return schedule.matches.filter(match => match.timeSlot === timeSlot);
-  },
-
-  /**
-   * Finds teams that have matches in consecutive time slots
-   * @param schedule The schedule to analyze
-   * @returns Array of objects with team name and consecutive matches
-   */
-  findConsecutiveMatches(schedule: Schedule): Array<{ teamName: string; matches: Match[] }> {
-    const teamMatches = this.groupMatchesByTeam(schedule.matches);
-    const consecutiveMatches: Array<{ teamName: string; matches: Match[] }> = [];
-
-    Object.entries(teamMatches).forEach(([teamName, matches]) => {
-      const sortedMatches = matches.sort((a, b) => a.timeSlot - b.timeSlot);
-
-      for (let i = 0; i < sortedMatches.length - 1; i++) {
-        if (this.areConsecutive(sortedMatches[i], sortedMatches[i + 1])) {
-          consecutiveMatches.push({
-            teamName,
-            matches: [sortedMatches[i], sortedMatches[i + 1]],
-          });
-        }
-      }
-    });
-
-    return consecutiveMatches;
-  },
-
-  /**
-   * Calculates basic statistics about the schedule
+   * Gets schedule statistics
    * @param schedule The schedule to analyze
    * @returns Object with various schedule statistics
    */
-  getScheduleStats(schedule: Schedule) {
-    const totalMatches = schedule.matches.length;
-    const divisions = Array.from(new Set(schedule.matches.map(m => m.division)));
-    const fields = Array.from(new Set(schedule.matches.map(m => m.field)));
-    const timeSlots = Array.from(new Set(schedule.matches.map(m => m.timeSlot))).sort((a, b) => a - b);
-
-    const fieldUsage = this.groupMatchesByField(schedule.matches);
-    const divisionCounts = this.groupMatchesByDivision(schedule.matches);
-
-    return {
-      totalMatches,
-      divisions: divisions.length,
-      fields: fields.length,
-      timeSlots: timeSlots.length,
-      minTimeSlot: timeSlots[0] || 0,
-      maxTimeSlot: timeSlots[timeSlots.length - 1] || 0,
-      fieldUsage: Object.fromEntries(Object.entries(fieldUsage).map(([field, matches]) => [field, matches.length])),
-      divisionCounts: Object.fromEntries(
-        Object.entries(divisionCounts).map(([division, matches]) => [division, matches.length])
-      ),
+  getScheduleStats(schedule: Schedule): {
+    totalMatches: number;
+    totalPlayers: number;
+    matchesPerTimeSlot: Record<number, number>;
+    matchesPerField: Record<string, number>;
+    matchesPerDivision: Record<string, number>;
+    playersPerTeam: Record<string, number>;
+  } {
+    const stats = {
+      totalMatches: schedule.matches.length,
+      totalPlayers: 0,
+      matchesPerTimeSlot: {} as Record<number, number>,
+      matchesPerField: {} as Record<string, number>,
+      matchesPerDivision: {} as Record<string, number>,
+      playersPerTeam: {} as Record<string, number>,
     };
+
+    const uniquePlayers = new Set<string>();
+
+    schedule.matches.forEach(match => {
+      // Count time slots
+      stats.matchesPerTimeSlot[match.timeSlot] = (stats.matchesPerTimeSlot[match.timeSlot] || 0) + 1;
+
+      // Count fields
+      stats.matchesPerField[match.field] = (stats.matchesPerField[match.field] || 0) + 1;
+
+      // Count divisions
+      stats.matchesPerDivision[match.division] = (stats.matchesPerDivision[match.division] || 0) + 1;
+
+      // Count players per team and unique players
+      [match.team1, match.team2].forEach(team => {
+        stats.playersPerTeam[team.name] = team.players.length;
+        team.players.forEach(player => uniquePlayers.add(player.name));
+      });
+    });
+
+    stats.totalPlayers = uniquePlayers.size;
+    return stats;
   },
 };
 
@@ -174,12 +202,13 @@ export function getScheduleHelpersAsString(): string {
 const ScheduleHelpers = {
   groupMatchesByTeam: ${ScheduleHelpers.groupMatchesByTeam.toString()},
   groupMatchesByField: ${ScheduleHelpers.groupMatchesByField.toString()},
+  groupMatchesByPlayer: ${ScheduleHelpers.groupMatchesByPlayer.toString()},
+  getPlayersInMatch: ${ScheduleHelpers.getPlayersInMatch.toString()},
   getTeamMatches: ${ScheduleHelpers.getTeamMatches.toString()},
+  getPlayerMatches: ${ScheduleHelpers.getPlayerMatches.toString()},
   areConsecutive: ${ScheduleHelpers.areConsecutive.toString()},
   createViolation: ${ScheduleHelpers.createViolation.toString()},
   groupMatchesByDivision: ${ScheduleHelpers.groupMatchesByDivision.toString()},
-  getMatchesInTimeSlot: ${ScheduleHelpers.getMatchesInTimeSlot.toString()},
-  findConsecutiveMatches: ${ScheduleHelpers.findConsecutiveMatches.toString()},
   getScheduleStats: ${ScheduleHelpers.getScheduleStats.toString()}
 };
 `;

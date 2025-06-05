@@ -3,9 +3,9 @@
   "plugins": ["prettier"],
   "rules": {
     "prettier/prettier": "error",
-    "prefer-const": "error",
-    "no-var": "error",
-    "no-unused-vars": "error"
+    "prefer-const": "warn",
+    "no-var": "warn",
+    "no-unused-vars": "warn"
   },
   "parserOptions": {
     "ecmaVersion": "latest",

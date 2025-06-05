@@ -1,12 +1,30 @@
 import { Schedule } from '../models/Schedule';
+import { Match } from '../models/Match';
+import { RuleViolation } from '../models/RuleViolation';
 import { AvoidBackToBackGames, AvoidFirstAndLastGame, AvoidReffingBeforePlaying } from '../models/ScheduleRule';
+
+// Type for optimization progress callback
+interface OptimizationProgressInfo {
+  iteration: number;
+  progress: number;
+  currentScore: number;
+  bestScore: number;
+  temperature: number;
+  violations: RuleViolation[];
+}
+
+// Type for optimization options
+interface OptimizationOptions {
+  iterations?: number;
+  progressCallback?: (info: OptimizationProgressInfo) => void;
+}
 
 /**
  * Create a schedule with default rules
- * @param {Array} matches - Array of Match objects
- * @returns {Schedule} New schedule with default rules
+ * @param matches - Array of Match objects
+ * @returns New schedule with default rules
  */
-export function createSchedule(matches) {
+export function createSchedule(matches: Match[]): Schedule {
   const schedule = new Schedule(matches);
 
   // Add default rules with priorities
@@ -19,23 +37,35 @@ export function createSchedule(matches) {
 
 /**
  * Optimize a schedule to minimize rule violations
- * @param {Schedule} schedule - Schedule to optimize
- * @param {Object} options - Optimization options
- * @param {number} options.iterations - Number of iterations (default: 10000)
- * @param {Function} options.progressCallback - Callback for progress updates
- * @returns {Schedule} Optimized schedule
+ * @param schedule - Schedule to optimize
+ * @param options - Optimization options
+ * @returns Optimized schedule
  */
-export async function optimizeSchedule(schedule, options = {}) {
+export async function optimizeSchedule(schedule: Schedule, options: OptimizationOptions = {}): Promise<Schedule> {
   const iterations = options.iterations || 10000;
   const progressCallback = options.progressCallback || (() => {});
 
   // Initial evaluation
   schedule.evaluate();
+  const originalScore = schedule.score;
 
-  // Setup for optimization
-  let currentSchedule = schedule;
-  let bestSchedule = schedule;
-  let bestScore = schedule.score;
+  // Helper function to create deep copies of matches
+  const copyMatches = (matches: Match[]): Match[] => {
+    return matches.map(
+      match => new Match(match.team1, match.team2, match.timeSlot, match.field, match.division, match.refereeTeam)
+    );
+  };
+
+  // Create initial copies for optimization - ensuring we have separate instances with deep copied matches
+  let currentSchedule = new Schedule(copyMatches(schedule.matches), [...schedule.rules]);
+  currentSchedule.evaluate();
+
+  let bestSchedule = new Schedule(copyMatches(schedule.matches), [...schedule.rules]);
+  bestSchedule.evaluate();
+  let bestScore = bestSchedule.score;
+
+  // Store the original score in the best schedule
+  bestSchedule.originalScore = originalScore;
 
   const initialTemperature = 100;
   const coolingRate = 0.995;
@@ -50,7 +80,7 @@ export async function optimizeSchedule(schedule, options = {}) {
         iteration: i,
         progress: i / iterations,
         currentScore: currentSchedule.score,
-        bestScore,
+        bestScore: bestScore,
         temperature,
         violations: bestSchedule.violations,
       });
@@ -69,8 +99,10 @@ export async function optimizeSchedule(schedule, options = {}) {
 
       // Update best schedule if needed
       if (newSchedule.score < bestScore) {
-        bestSchedule = newSchedule;
-        bestScore = newSchedule.score;
+        bestSchedule = new Schedule(copyMatches(newSchedule.matches), [...newSchedule.rules]);
+        bestSchedule.evaluate();
+        bestSchedule.originalScore = originalScore; // Preserve original score
+        bestScore = bestSchedule.score;
       }
     }
 
@@ -83,7 +115,7 @@ export async function optimizeSchedule(schedule, options = {}) {
     iteration: iterations,
     progress: 1,
     currentScore: currentSchedule.score,
-    bestScore,
+    bestScore: bestScore,
     temperature,
     violations: bestSchedule.violations,
   });
@@ -93,12 +125,12 @@ export async function optimizeSchedule(schedule, options = {}) {
 
 /**
  * Calculate acceptance probability for simulated annealing
- * @param {number} currentScore - Current solution score
- * @param {number} newScore - New solution score
- * @param {number} temperature - Current temperature
- * @returns {number} Probability of accepting the new solution
+ * @param currentScore - Current solution score
+ * @param newScore - New solution score
+ * @param temperature - Current temperature
+ * @returns Probability of accepting the new solution
  */
-function getAcceptanceProbability(currentScore, newScore, temperature) {
+function getAcceptanceProbability(currentScore: number, newScore: number, temperature: number): number {
   // Always accept better solutions
   if (newScore < currentScore) {
     return 1.0;
@@ -110,16 +142,16 @@ function getAcceptanceProbability(currentScore, newScore, temperature) {
 
 /**
  * Create a block schedule format by division
- * @param {Array} matches - Array of Match objects
- * @param {string} divisionOrder - Order of divisions, comma-separated
- * @returns {Array} Rearranged matches with updated time slots
+ * @param matches - Array of Match objects
+ * @param divisionOrder - Order of divisions, comma-separated
+ * @returns Rearranged matches with updated time slots
  */
-export function createDivisionBlocks(matches, divisionOrder) {
+export function createDivisionBlocks(matches: Match[], divisionOrder: string): Match[] {
   // Parse division order
   const divisions = divisionOrder.split(',').map(d => d.trim());
 
   // Group matches by division
-  const matchesByDivision = {};
+  const matchesByDivision: Record<string, Match[]> = {};
   divisions.forEach(div => {
     matchesByDivision[div] = [];
   });
@@ -132,7 +164,7 @@ export function createDivisionBlocks(matches, divisionOrder) {
   });
 
   // Create new array of matches with updated time slots
-  const newMatches = [];
+  const newMatches: Match[] = [];
   let currentTimeSlot = 1;
 
   divisions.forEach(division => {
@@ -140,7 +172,14 @@ export function createDivisionBlocks(matches, divisionOrder) {
 
     divMatches.forEach(match => {
       // Create a new match object with updated time slot
-      const newMatch = { ...match, timeSlot: currentTimeSlot };
+      const newMatch = new Match(
+        match.team1,
+        match.team2,
+        currentTimeSlot,
+        match.field,
+        match.division,
+        match.refereeTeam
+      );
       newMatches.push(newMatch);
       currentTimeSlot++;
     });

@@ -17,6 +17,7 @@ npm-debug.log*
 /out/
 
 # yarn berry
+.yarn
 .yarn/*
 !.yarn/patches
 !.yarn/plugins

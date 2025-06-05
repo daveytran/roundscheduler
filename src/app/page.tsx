@@ -16,8 +16,206 @@ import {
   clearLocalStorage,
   hasStoredData,
   getStorageSize,
+  RuleConfigurationData,
+  OptimizerSettings,
 } from '../lib/localStorage';
-import { CustomRule } from '../models/ScheduleRule';
+import {
+  CustomRule,
+  AvoidBackToBackGames,
+  AvoidFirstAndLastGame,
+  AvoidReffingBeforePlaying,
+  AvoidPlayerBackToBackGames,
+  EnsurePlayerRestTime,
+  AvoidPlayerFirstAndLastGame,
+  LimitPlayerVenueTime,
+  AvoidPlayerLargeGaps,
+  BalanceRefereeAssignments,
+  EnsureFairFieldDistribution,
+  CustomRule as CustomRuleClass,
+} from '../models/ScheduleRule';
+import { ScheduleHelpers } from '../lib/schedule-helpers';
+
+// Default rule configurations that can be serialized
+const defaultRuleConfigurations: RuleConfigurationData[] = [
+  // Team-based rules (higher priority)
+  {
+    id: 'back_to_back',
+    name: 'Avoid back-to-back games (Teams)',
+    enabled: true,
+    priority: 5,
+    type: 'builtin',
+    category: 'team',
+  },
+  {
+    id: 'first_last',
+    name: 'Avoid teams having first and last game',
+    enabled: true,
+    priority: 4,
+    type: 'builtin',
+    category: 'team',
+  },
+  {
+    id: 'reffing_before',
+    name: 'Avoid teams reffing before playing',
+    enabled: true,
+    priority: 4,
+    type: 'builtin',
+    category: 'team',
+  },
+  {
+    id: 'balance_referee',
+    name: 'Balance referee assignments',
+    enabled: true,
+    priority: 3,
+    type: 'builtin',
+    category: 'team',
+    configuredParams: { maxRefereeDifference: 1 },
+  },
+  {
+    id: 'fair_field_distribution',
+    name: 'Ensure fair field distribution',
+    enabled: true,
+    priority: 2,
+    type: 'builtin',
+    category: 'team',
+  },
+  // Player-based rules (lower priority)
+  {
+    id: 'player_back_to_back',
+    name: 'Avoid back-to-back games (Players)',
+    enabled: true,
+    priority: 2,
+    type: 'builtin',
+    category: 'player',
+  },
+  {
+    id: 'limit_venue_time',
+    name: 'Limit player venue time',
+    enabled: true,
+    priority: 2,
+    type: 'builtin',
+    category: 'player',
+    configuredParams: { maxHours: 5, minutesPerSlot: 30 },
+  },
+  {
+    id: 'player_rest_time',
+    name: 'Ensure player rest time',
+    enabled: true,
+    priority: 1,
+    type: 'builtin',
+    category: 'player',
+    configuredParams: { minRestSlots: 2 },
+  },
+  {
+    id: 'player_first_last',
+    name: 'Avoid players having first and last game',
+    enabled: true,
+    priority: 1,
+    type: 'builtin',
+    category: 'player',
+  },
+  {
+    id: 'avoid_large_gaps',
+    name: 'Avoid large gaps between player games',
+    enabled: true,
+    priority: 1,
+    type: 'builtin',
+    category: 'player',
+    configuredParams: { maxGapSlots: 6 },
+  },
+];
+
+const defaultOptimizerSettings: OptimizerSettings = {
+  iterations: 10000,
+};
+
+// Helper function to create rule instances from configurations
+const createRuleFromConfiguration = (config: RuleConfigurationData): any => {
+  if (!config.enabled) return null;
+
+  if (config.type === 'builtin') {
+    const args = [config.priority];
+
+    // Add configured parameter values
+    if (config.configuredParams) {
+      switch (config.id) {
+        case 'player_rest_time':
+          args.push(config.configuredParams.minRestSlots ?? 2);
+          break;
+        case 'limit_venue_time':
+          args.push(config.configuredParams.maxHours ?? 5);
+          args.push(config.configuredParams.minutesPerSlot ?? 30);
+          break;
+        case 'avoid_large_gaps':
+          args.push(config.configuredParams.maxGapSlots ?? 6);
+          break;
+        case 'balance_referee':
+          args.push(config.configuredParams.maxRefereeDifference ?? 1);
+          break;
+      }
+    }
+
+    // Create rule instance based on ID
+    switch (config.id) {
+      case 'back_to_back':
+        return new AvoidBackToBackGames(...args);
+      case 'first_last':
+        return new AvoidFirstAndLastGame(...args);
+      case 'reffing_before':
+        return new AvoidReffingBeforePlaying(...args);
+      case 'player_back_to_back':
+        return new AvoidPlayerBackToBackGames(...args);
+      case 'player_rest_time':
+        return new EnsurePlayerRestTime(...args);
+      case 'player_first_last':
+        return new AvoidPlayerFirstAndLastGame(...args);
+      case 'limit_venue_time':
+        return new LimitPlayerVenueTime(...args);
+      case 'avoid_large_gaps':
+        return new AvoidPlayerLargeGaps(...args);
+      case 'balance_referee':
+        return new BalanceRefereeAssignments(...args);
+      case 'fair_field_distribution':
+        return new EnsureFairFieldDistribution(...args);
+      default:
+        console.warn(`Unknown builtin rule: ${config.id}`);
+        return null;
+    }
+  } else if (config.type === 'custom' && config.code) {
+    try {
+      // Convert string function to actual function using eval
+      const cleanCode = config.code.replace(/^function\s+evaluate\s*\([^)]*\)\s*{/, '').replace(/}$/, '');
+      const evaluateFunc = new Function(
+        'schedule',
+        'ScheduleHelpers',
+        `const violations = [];\n${cleanCode}\nreturn violations;`
+      ) as (schedule: any, scheduleHelpers: any) => any[];
+
+      // Wrap the function to provide ScheduleHelpers
+      const wrappedFunc = (schedule: any) => evaluateFunc(schedule, ScheduleHelpers);
+      return new CustomRuleClass(config.name, wrappedFunc, config.priority);
+    } catch (err) {
+      console.error(`Error creating custom rule ${config.name}: ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  return null;
+};
+
+// Helper function to create default rule instances
+const createDefaultRules = () => [
+  new AvoidBackToBackGames(5),
+  new AvoidFirstAndLastGame(4),
+  new AvoidReffingBeforePlaying(4),
+  new AvoidPlayerBackToBackGames(2),
+  new EnsurePlayerRestTime(1, 2), // priority 1, minRestSlots 2
+  new AvoidPlayerFirstAndLastGame(1),
+  new LimitPlayerVenueTime(2, 5, 30), // priority 2, maxHours 5, minutesPerSlot 30
+  new AvoidPlayerLargeGaps(1, 6), // priority 1, maxGapSlots 6
+  new BalanceRefereeAssignments(3, 1), // priority 3, maxRefereeDifference 1
+  new EnsureFairFieldDistribution(2),
+];
 
 export default function Home() {
   const [players, setPlayers] = useState<Player[]>([]);
@@ -25,10 +223,19 @@ export default function Home() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [formattedMatches, setFormattedMatches] = useState<Match[]>([]);
   const [schedulingRules, setSchedulingRules] = useState<any[]>([]);
+  const [ruleConfigurations, setRuleConfigurations] = useState<RuleConfigurationData[]>(defaultRuleConfigurations);
+  const [optimizerSettings, setOptimizerSettings] = useState<OptimizerSettings>(defaultOptimizerSettings);
   const [schedule, setSchedule] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<string>('import');
   const [dataLoadedFromStorage, setDataLoadedFromStorage] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<string>('');
+  const [showOptimizerInResults, setShowOptimizerInResults] = useState<boolean>(false);
+
+  // Initialize rules from configurations
+  useEffect(() => {
+    const ruleInstances = ruleConfigurations.map(createRuleFromConfiguration).filter(rule => rule !== null);
+    setSchedulingRules(ruleInstances);
+  }, [ruleConfigurations]);
 
   // Load data from localStorage on component mount
   useEffect(() => {
@@ -36,10 +243,18 @@ export default function Home() {
       const savedData = loadFromLocalStorage();
       if (savedData.lastUpdated) {
         setPlayers(savedData.players || []);
-        setTeams(savedData.teams || null);
+        setTeams(savedData.teams ?? null);
         setMatches(savedData.matches || []);
         setFormattedMatches(savedData.formattedMatches || []);
-        setSchedulingRules(savedData.schedulingRules || []);
+
+        // Load rule configurations and optimizer settings
+        if (savedData.ruleConfigurations) {
+          setRuleConfigurations(savedData.ruleConfigurations);
+        }
+        if (savedData.optimizerSettings) {
+          setOptimizerSettings(savedData.optimizerSettings);
+        }
+
         setSchedule(savedData.schedule || null);
         setLastUpdated(savedData.lastUpdated);
         setDataLoadedFromStorage(true);
@@ -88,7 +303,7 @@ export default function Home() {
     saveToLocalStorage({
       matches: importedMatches,
       formattedMatches: importedMatches,
-      teams: teamsToSave,
+      teams: teamsToSave || undefined,
     });
   };
 
@@ -97,9 +312,22 @@ export default function Home() {
     saveToLocalStorage({ formattedMatches: newFormattedMatches });
   };
 
+  // Handle rule configuration changes (called from RuleConfiguration component)
+  const handleRuleConfigurationsChange = useCallback((configs: RuleConfigurationData[]) => {
+    setRuleConfigurations(configs);
+    saveToLocalStorage({ ruleConfigurations: configs });
+  }, []);
+
+  // Handle optimizer settings changes
+  const handleOptimizerSettingsChange = useCallback((settings: OptimizerSettings) => {
+    setOptimizerSettings(settings);
+    saveToLocalStorage({ optimizerSettings: settings });
+  }, []);
+
   const handleRulesChange = useCallback((rules: CustomRule[]) => {
     setSchedulingRules(rules);
-    saveToLocalStorage({ schedulingRules: rules });
+    // Note: Don't save rule instances to localStorage as they contain functions
+    // Rules will be recreated from configuration when needed
   }, []);
 
   const handleOptimizationComplete = (optimizedSchedule: any) => {
@@ -115,7 +343,9 @@ export default function Home() {
       setTeams(null);
       setMatches([]);
       setFormattedMatches([]);
-      setSchedulingRules([]);
+      // Reset configurations to defaults
+      setRuleConfigurations(defaultRuleConfigurations);
+      setOptimizerSettings(defaultOptimizerSettings);
       setSchedule(null);
       setDataLoadedFromStorage(false);
       setLastUpdated('');
@@ -127,7 +357,7 @@ export default function Home() {
     { id: 'import', label: 'Import Data' },
     { id: 'format', label: 'Format Options', disabled: !matches.length },
     { id: 'rules', label: 'Rules', disabled: !formattedMatches.length },
-    { id: 'optimize', label: 'Optimize', disabled: !formattedMatches.length || !schedulingRules.length },
+    { id: 'optimize', label: 'Optimize', disabled: !formattedMatches.length },
     { id: 'results', label: 'Results', disabled: !schedule },
   ];
 
@@ -337,17 +567,123 @@ export default function Home() {
 
           {activeTab === 'format' && <ScheduleFormatOptions matches={matches} onFormatApplied={handleFormatApplied} />}
 
-          {activeTab === 'rules' && <RuleConfiguration onRulesChange={handleRulesChange} />}
+          {activeTab === 'rules' && (
+            <RuleConfiguration
+              initialConfigurations={ruleConfigurations}
+              onConfigurationsChange={handleRuleConfigurationsChange}
+              onRulesChange={handleRulesChange}
+            />
+          )}
 
           {activeTab === 'optimize' && (
             <ScheduleOptimizer
               matches={formattedMatches}
               rules={schedulingRules}
+              initialSettings={optimizerSettings}
+              onSettingsChange={handleOptimizerSettingsChange}
               onOptimizationComplete={handleOptimizationComplete}
             />
           )}
 
-          {activeTab === 'results' && schedule && <ScheduleVisualization schedule={schedule} />}
+          {activeTab === 'results' && schedule && (
+            <div className="space-y-6">
+              {/* Optimize Again Section */}
+              <div className="bg-white rounded-lg shadow p-4">
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-800">Schedule Results</h3>
+
+                    {/* Show optimization comparison if available */}
+                    {schedule.originalScore !== undefined && schedule.originalScore !== schedule.score ? (
+                      <div className="space-y-1">
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">Original score:</span> {schedule.originalScore}
+                          <span className="ml-2 text-gray-500">(before optimization)</span>
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">Optimized score:</span> {schedule.score}
+                          {schedule.score === 0 ? (
+                            <span className="ml-2 text-green-600 font-medium">🎉 Perfect schedule!</span>
+                          ) : (
+                            <span className="ml-2 text-amber-600">(Lower is better)</span>
+                          )}
+                        </p>
+                        <p className="text-xs text-green-700 bg-green-50 px-2 py-1 rounded inline-block">
+                          ✅ Improved by {schedule.originalScore - schedule.score} points (
+                          {Math.round(((schedule.originalScore - schedule.score) / schedule.originalScore) * 100)}%
+                          better)
+                        </p>
+                      </div>
+                    ) : schedule.originalScore !== undefined && schedule.originalScore === schedule.score ? (
+                      <div className="space-y-1">
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">Schedule score:</span> {schedule.score}
+                          {schedule.score === 0 ? (
+                            <span className="ml-2 text-green-600 font-medium">🎉 Perfect schedule!</span>
+                          ) : (
+                            <span className="ml-2 text-amber-600">(Lower is better)</span>
+                          )}
+                        </p>
+                        <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded inline-block">
+                          ⚠️ No improvement found during optimization
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-600">
+                        Current schedule score: <span className="font-medium">{schedule.score}</span>
+                        {schedule.score === 0 ? (
+                          <span className="ml-2 text-green-600 font-medium">🎉 Perfect schedule!</span>
+                        ) : (
+                          <span className="ml-2 text-amber-600">(Lower is better)</span>
+                        )}
+                      </p>
+                    )}
+
+                    <p className="text-xs text-gray-500 mt-2">
+                      Optimization includes shuffling match times and referee assignments to minimize rule violations.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowOptimizerInResults(!showOptimizerInResults)}
+                      className={`px-4 py-2 rounded font-medium transition-colors ${
+                        showOptimizerInResults
+                          ? 'bg-gray-500 text-white hover:bg-gray-600'
+                          : 'bg-blue-500 text-white hover:bg-blue-600'
+                      }`}
+                    >
+                      {showOptimizerInResults ? 'Hide Optimizer' : '🔄 Optimize Again'}
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('rules')}
+                      className="px-4 py-2 bg-purple-500 text-white rounded font-medium hover:bg-purple-600 transition-colors"
+                    >
+                      ⚙️ Adjust Rules
+                    </button>
+                  </div>
+                </div>
+
+                {/* Show optimizer inline when toggled */}
+                {showOptimizerInResults && (
+                  <div className="border-t pt-4">
+                    <ScheduleOptimizer
+                      matches={formattedMatches}
+                      rules={schedulingRules}
+                      initialSettings={optimizerSettings}
+                      onSettingsChange={handleOptimizerSettingsChange}
+                      onOptimizationComplete={optimizedSchedule => {
+                        handleOptimizationComplete(optimizedSchedule);
+                        setShowOptimizerInResults(false);
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Schedule Visualization */}
+              <ScheduleVisualization schedule={schedule} />
+            </div>
+          )}
         </div>
       </main>
 

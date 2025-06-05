@@ -51,10 +51,14 @@ export interface Match {
  * Represents a rule violation found in the schedule
  */
 export interface RuleViolation {
+  /** Name of the rule that was violated */
+  rule: string;
   /** Human-readable description of the violation */
   description: string;
   /** Array of matches involved in the violation (optional) */
   matches?: Match[];
+  /** Severity level of the violation (optional) */
+  severity?: 'low' | 'medium' | 'high';
 }
 
 /**
@@ -112,12 +116,34 @@ declare namespace ScheduleHelpers {
   function groupMatchesByField(matches: Match[]): Record<string, Match[]>;
 
   /**
+   * Groups matches by player name - NEW for player-based rules
+   * @param matches Array of matches to group
+   * @returns Object with player names as keys and match arrays as values
+   */
+  function groupMatchesByPlayer(matches: Match[]): Record<string, Match[]>;
+
+  /**
+   * Gets all players participating in a specific match - NEW for player-based rules
+   * @param match The match to extract players from
+   * @returns Array of players in the match
+   */
+  function getPlayersInMatch(match: Match): Player[];
+
+  /**
    * Gets all matches for a specific team
    * @param schedule The schedule to search
    * @param teamName Name of the team
    * @returns Array of matches involving this team
    */
   function getTeamMatches(schedule: Schedule, teamName: string): Match[];
+
+  /**
+   * Gets all matches for a specific player - NEW for player-based rules
+   * @param schedule The schedule to search
+   * @param playerName Name of the player
+   * @returns Array of matches involving this player
+   */
+  function getPlayerMatches(schedule: Schedule, playerName: string): Match[];
 
   /**
    * Checks if two matches are consecutive (timeSlot difference of 1)
@@ -141,6 +167,27 @@ declare namespace ScheduleHelpers {
     matches?: Match[],
     severity?: 'low' | 'medium' | 'high'
   ): RuleViolation;
+
+  /**
+   * Groups matches by division
+   * @param matches Array of matches to group
+   * @returns Object with division names as keys and match arrays as values
+   */
+  function groupMatchesByDivision(matches: Match[]): Record<string, Match[]>;
+
+  /**
+   * Gets schedule statistics including player data
+   * @param schedule The schedule to analyze
+   * @returns Object with various schedule statistics
+   */
+  function getScheduleStats(schedule: Schedule): {
+    totalMatches: number;
+    totalPlayers: number;
+    matchesPerTimeSlot: Record<number, number>;
+    matchesPerField: Record<string, number>;
+    matchesPerDivision: Record<string, number>;
+    playersPerTeam: Record<string, number>;
+  };
 }
 
 /**
