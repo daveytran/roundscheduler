@@ -2,10 +2,9 @@
   "name": "roundscheduler",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "yarn@4.9.1",
   "engines": {
     "node": ">=16.0.0",
-    "yarn": ">=4.0.0"
+    "yarn": ">=1.0.0"
   },
   "scripts": {
     "dev": "next dev",
@@ -32,5 +31,6 @@
     "eslint": "^8.38.0",
     "eslint-config-next": "^14.0.0",
     "typescript": "^5.8.3"
-  }
+  },
+  "packageManager": "yarn@1.22.22+sha1.ac34549e6aa8e7ead463a7407e1c7390f61a6610"
 }
