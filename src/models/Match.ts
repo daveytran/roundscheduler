@@ -1,28 +1,43 @@
+import { Team, Division, TeamsMap } from './Team';
+
+export interface MatchData {
+  team1: string;
+  team2: string;
+  timeSlot: number;
+  field: string;
+  division: string;
+  refereeTeam: string | null;
+}
+
 /**
  * Match class represents a match between two teams
  */
 export class Match {
-  constructor(team1, team2, timeSlot, field, division, refereeTeam = null) {
+  team1: Team;
+  team2: Team;
+  timeSlot: number; // Integer representing the order/time slot
+  field: string;
+  division: Division;
+  refereeTeam: Team | null; // Team assigned to referee this match
+
+  constructor(team1: Team, team2: Team, timeSlot: number, field: string, division: Division, refereeTeam: Team | null = null) {
     this.team1 = team1;
     this.team2 = team2;
-    this.timeSlot = timeSlot; // Integer representing the order/time slot
+    this.timeSlot = timeSlot;
     this.field = field;
     this.division = division;
-    this.refereeTeam = refereeTeam; // Team assigned to referee this match
+    this.refereeTeam = refereeTeam;
   }
 
   /**
    * Create matches from imported schedule data
-   * @param {Array} scheduleData - Array of schedule rows
-   * @param {Object} teamsMap - Map of team names to Team objects by division
-   * @returns {Array} Array of Match objects
    */
-  static createMatchesFromSchedule(scheduleData, teamsMap) {
+  static createMatchesFromSchedule(scheduleData: string[][], teamsMap: TeamsMap): Match[] {
     // Assuming scheduleData has format:
     // [timeSlot, division, field, team1, team2, refereeTeam]
     return scheduleData.map(row => {
       const timeSlot = parseInt(row[0]);
-      const division = row[1];
+      const division = row[1] as Division;
       const field = row[2];
       const team1Name = row[3];
       const team2Name = row[4];
@@ -40,7 +55,7 @@ export class Match {
     });
   }
 
-  toObject() {
+  toObject(): MatchData {
     return {
       team1: this.team1.name,
       team2: this.team2.name,

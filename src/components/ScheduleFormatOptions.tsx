@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { createDivisionBlocks } from '../lib/scheduler';
 
 export default function ScheduleFormatOptions({ matches, onFormatApplied }) {

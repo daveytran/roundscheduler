@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Schedule } from '../models/Schedule';
 import { optimizeSchedule } from '../lib/scheduler';
 

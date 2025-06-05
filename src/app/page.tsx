@@ -1,35 +1,38 @@
-import { useState } from 'react';
-import Head from 'next/head';
+'use client';
+
+import React, { useState } from 'react';
 import ImportPlayers from '../components/ImportPlayers';
 import ImportSchedule from '../components/ImportSchedule';
 import ScheduleFormatOptions from '../components/ScheduleFormatOptions';
 import RuleConfiguration from '../components/RuleConfiguration';
 import ScheduleOptimizer from '../components/ScheduleOptimizer';
 import ScheduleVisualization from '../components/ScheduleVisualization';
-import { Schedule } from '../models/Schedule';
+import { Player } from '../models/Player';
+import { TeamsMap } from '../models/Team';
+import { Match } from '../models/Match';
 
 export default function Home() {
-  const [players, setPlayers] = useState([]);
-  const [teams, setTeams] = useState(null);
-  const [matches, setMatches] = useState([]);
-  const [formattedMatches, setFormattedMatches] = useState([]);
-  const [schedulingRules, setSchedulingRules] = useState([]);
-  const [schedule, setSchedule] = useState(null);
-  const [activeTab, setActiveTab] = useState('import');
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [teams, setTeams] = useState<TeamsMap | null>(null);
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [formattedMatches, setFormattedMatches] = useState<Match[]>([]);
+  const [schedulingRules, setSchedulingRules] = useState<any[]>([]);
+  const [schedule, setSchedule] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<string>('import');
   
-  const handlePlayersImport = (importedPlayers, importedTeams) => {
+  const handlePlayersImport = (importedPlayers: Player[], importedTeams: TeamsMap) => {
     setPlayers(importedPlayers);
     setTeams(importedTeams);
   };
   
-  const handleScheduleImport = (importedMatches) => {
+  const handleScheduleImport = (importedMatches: Match[]) => {
     setMatches(importedMatches);
     setFormattedMatches(importedMatches);
     
     // If this is the first data import, initialize teams
     if (!teams) {
       // Extract teams from matches
-      const extractedTeams = {
+      const extractedTeams: TeamsMap = {
         mixed: {},
         gendered: {},
         cloth: {}
@@ -52,15 +55,15 @@ export default function Home() {
     }
   };
   
-  const handleFormatApplied = (newFormattedMatches) => {
+  const handleFormatApplied = (newFormattedMatches: Match[]) => {
     setFormattedMatches(newFormattedMatches);
   };
   
-  const handleRulesChange = (rules) => {
+  const handleRulesChange = (rules: any[]) => {
     setSchedulingRules(rules);
   };
   
-  const handleOptimizationComplete = (optimizedSchedule) => {
+  const handleOptimizationComplete = (optimizedSchedule: any) => {
     setSchedule(optimizedSchedule);
     setActiveTab('results');
   };
@@ -75,12 +78,6 @@ export default function Home() {
   
   return (
     <div className="min-h-screen bg-gray-50">
-      <Head>
-        <title>Round Scheduler - Tournament Scheduling Tool</title>
-        <meta name="description" content="Tournament scheduling tool with rule-based optimization" />
-        <link rel="icon" href="/favicon.ico" />
-      </Head>
-      
       <header className="bg-blue-600 text-white shadow-md">
         <div className="container mx-auto px-4 py-4">
           <h1 className="text-2xl font-bold">Round Scheduler</h1>
@@ -162,4 +159,4 @@ export default function Home() {
       </footer>
     </div>
   );
-}
+} 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   AvoidBackToBackGames, 
   AvoidFirstAndLastGame, 
@@ -6,7 +6,11 @@ import {
   CustomRule
 } from '../models/ScheduleRule';
 
-export default function RuleConfiguration({ onRulesChange }) {
+interface RuleConfigurationProps {
+  onRulesChange?: (rules: any[]) => void;
+}
+
+export default function RuleConfiguration({ onRulesChange }: RuleConfigurationProps) {
   const [rules, setRules] = useState([
     {
       id: 'back_to_back',

@@ -1,15 +1,30 @@
+import { Player } from './Player';
+
+export type Division = "mixed" | "gendered" | "cloth";
+
+export interface TeamsMap {
+  mixed: { [teamName: string]: Team };
+  gendered: { [teamName: string]: Team };
+  cloth: { [teamName: string]: Team };
+}
+
 /**
  * Team class represents a team in a division
  */
 export class Team {
-  constructor(name, division, players = []) {
+  name: string;
+  division: Division;
+  players: Player[];
+  matches: any[]; // TODO: Add proper Match type when available
+
+  constructor(name: string, division: Division, players: Player[] = []) {
     this.name = name;
-    this.division = division; // "mixed", "gendered", or "cloth"
+    this.division = division;
     this.players = players;
     this.matches = [];
   }
 
-  addPlayer(player) {
+  addPlayer(player: Player): void {
     if (!this.players.some(p => p.name === player.name)) {
       this.players.push(player);
     }
@@ -17,11 +32,9 @@ export class Team {
 
   /**
    * Create teams from player data
-   * @param {Array} players - Array of Player objects
-   * @returns {Object} Object with teams by division
    */
-  static createTeamsFromPlayers(players) {
-    const teams = {
+  static createTeamsFromPlayers(players: Player[]): TeamsMap {
+    const teams: TeamsMap = {
       mixed: {},
       gendered: {},
       cloth: {}
