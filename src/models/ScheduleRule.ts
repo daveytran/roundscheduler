@@ -40,19 +40,23 @@ export class AvoidBackToBackGames extends ScheduleRule {
 
       // Check if the time slots are consecutive
       if (currMatch.timeSlot === prevMatch.timeSlot + 1) {
-        // Check if any team plays in both matches
-        if (
-          prevMatch.team1.name === currMatch.team1.name ||
-          prevMatch.team1.name === currMatch.team2.name ||
-          prevMatch.team2.name === currMatch.team1.name ||
-          prevMatch.team2.name === currMatch.team2.name
-        ) {
+        // Check if any team plays in both matches and identify which team
+        const teams = [];
+        if (prevMatch.team1.name === currMatch.team1.name || prevMatch.team1.name === currMatch.team2.name) {
+          teams.push(prevMatch.team1.name);
+        }
+        if (prevMatch.team2.name === currMatch.team1.name || prevMatch.team2.name === currMatch.team2.name) {
+          teams.push(prevMatch.team2.name);
+        }
+
+        // Create a violation for each team that has back-to-back games
+        teams.forEach(teamName => {
           violations.push({
             rule: this.name,
-            description: `Team plays back-to-back in time slots ${prevMatch.timeSlot} and ${currMatch.timeSlot}`,
+            description: `Team ${teamName} plays back-to-back in time slots ${prevMatch.timeSlot} and ${currMatch.timeSlot}`,
             matches: [prevMatch, currMatch],
           });
-        }
+        });
       }
     }
 
