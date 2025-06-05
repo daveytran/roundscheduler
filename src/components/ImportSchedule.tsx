@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { Importer, ImporterField } from 'react-csv-importer';
-import 'react-csv-importer/dist/index.css';
+import { ReactSpreadsheetImport } from 'react-spreadsheet-import';
 import { parseCSV, importSchedule } from '../lib/importUtils';
 import { Team, TeamsMap } from '../models/Team';
 import { Match } from '../models/Match';
@@ -33,10 +32,31 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
   const [matches, setMatches] = useState<Match[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showResults, setShowResults] = useState<boolean>(false);
+  const [isImportOpen, setIsImportOpen] = useState<boolean>(false);
+
+  const fields = [
+    { label: "Time Slot", key: "timeSlot", fieldType: { type: "input" }, optional: true },
+    { label: "Time", key: "time", fieldType: { type: "input" }, optional: true },
+    { label: "Round", key: "round", fieldType: { type: "input" }, optional: true },
+    { label: "Division", key: "division", fieldType: { type: "input" } },
+    { label: "Field", key: "field", fieldType: { type: "input" }, optional: true },
+    { label: "Court", key: "court", fieldType: { type: "input" }, optional: true },
+    { label: "Pitch", key: "pitch", fieldType: { type: "input" }, optional: true },
+    { label: "Team 1", key: "team1", fieldType: { type: "input" } },
+    { label: "Home Team", key: "homeTeam", fieldType: { type: "input" }, optional: true },
+    { label: "Home", key: "home", fieldType: { type: "input" }, optional: true },
+    { label: "Team 2", key: "team2", fieldType: { type: "input" } },
+    { label: "Away Team", key: "awayTeam", fieldType: { type: "input" }, optional: true },
+    { label: "Away", key: "away", fieldType: { type: "input" }, optional: true },
+    { label: "Referee", key: "referee", fieldType: { type: "input" }, optional: true },
+    { label: "Referee Team", key: "refereeTeam", fieldType: { type: "input" }, optional: true },
+    { label: "Team Referee", key: "teamReferee", fieldType: { type: "input" }, optional: true },
+  ] as const;
   
-  const handleDataImport = (rows: ImportedScheduleRow[]) => {
+  const handleDataImport = (data: any) => {
     try {
       setError(null);
+      const rows = data.validData as ImportedScheduleRow[];
       
       if (rows.length === 0) {
         setError('No valid schedule data found');
@@ -73,6 +93,7 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
       
       setMatches(importedMatches);
       setShowResults(true);
+      setIsImportOpen(false);
       
       // Notify parent component
       if (onImportComplete) {
@@ -80,6 +101,7 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
       }
     } catch (err) {
       setError(`Import error: ${err instanceof Error ? err.message : String(err)}`);
+      setIsImportOpen(false);
     }
   };
 
@@ -123,39 +145,38 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
           </div>
 
           <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
-            <Importer
-              dataHandler={handleDataImport}
-              defaultNoHeader={false}
-              restartable={false}
-              onStart={({ file, fields }) => {
-                setError(null);
-                console.log('Schedule import started:', { file: file.name, fields });
-              }}
-              onComplete={({ file, rows }) => {
-                console.log('Schedule import completed:', { file: file.name, rowCount: rows.length });
-              }}
-              onError={(error) => {
-                setError(`Import error: ${error.message}`);
-              }}
+            <button
+              onClick={() => setIsImportOpen(true)}
+              className="w-full px-4 py-3 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
             >
-              <ImporterField name="timeSlot" label="Time Slot" optional />
-              <ImporterField name="time" label="Time (Alt)" optional />
-              <ImporterField name="round" label="Round" optional />
-              <ImporterField name="division" label="Division" />
-              <ImporterField name="field" label="Field" optional />
-              <ImporterField name="court" label="Court" optional />
-              <ImporterField name="pitch" label="Pitch" optional />
-              <ImporterField name="team1" label="Team 1" />
-              <ImporterField name="homeTeam" label="Home Team" optional />
-              <ImporterField name="home" label="Home" optional />
-              <ImporterField name="team2" label="Team 2" />
-              <ImporterField name="awayTeam" label="Away Team" optional />
-              <ImporterField name="away" label="Away" optional />
-              <ImporterField name="referee" label="Referee Team" optional />
-              <ImporterField name="refereeTeam" label="Referee Team (Alt)" optional />
-              <ImporterField name="teamReferee" label="Team Referee" optional />
-            </Importer>
+              Click to Import CSV File
+            </button>
           </div>
+
+          <ReactSpreadsheetImport
+            isOpen={isImportOpen}
+            onClose={() => setIsImportOpen(false)}
+            onSubmit={handleDataImport}
+            fields={fields}
+            allowInvalidSubmit={false}
+            translations={{
+              uploadStep: {
+                title: "Upload Schedule File",
+                manifestLoadButton: "Select File",
+              },
+              selectHeaderStep: {
+                title: "Select Header Row",
+              },
+              matchColumnsStep: {
+                title: "Match Columns",
+                userTableTitle: "Your File",
+                templateTitle: "Expected Format",
+              },
+              validationStep: {
+                title: "Validate Data",
+              },
+            }}
+          />
         </div>
       ) : (
         <div>
