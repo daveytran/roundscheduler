@@ -43,7 +43,7 @@ export class Schedule {
    * Evaluate all rules and calculate score
    * @returns {number} Score (lower is better)
    */
-  evaluate() {
+  evaluate(verbose: boolean = false) {
     this.violations = []
     this.score = 0
 
@@ -54,10 +54,18 @@ export class Schedule {
     for (const rule of this.rules) {
       const ruleViolations: RuleViolation[] = []
       rule.evaluate(this, ruleViolations)
+
+      if (verbose && ruleViolations.length > 0) {
+        console.log(`⚠️ Rule "${rule.name}" found ${ruleViolations.length} violations (priority ${rule.priority})`)
+      }
+
       this.score += ruleViolations.length * rule.priority
       this.violations = [...this.violations, ...ruleViolations]
     }
 
+    if (verbose) {
+      console.log(`📊 Schedule evaluated: ${this.violations.length} total violations, score = ${this.score}`)
+    }
     return this.score
   }
 
@@ -87,12 +95,33 @@ export class Schedule {
     const specialActivities = newMatches.filter(match => match.isSpecialActivity())
     const regularMatches = newMatches.filter(match => !match.isSpecialActivity())
 
+    // Only log occasionally to avoid spam
+    const shouldLog = Math.random() < 0.005 // Log ~0.5% of randomization attempts
+
+    if (shouldLog) {
+      console.log(
+        `🔀 Randomizing: ${regularMatches.length} regular matches, ${specialActivities.length} special activities`
+      )
+    }
+
     // Group regular matches by division
     const divisionMatches = ScheduleHelpers.groupMatchesByDivision(regularMatches)
+
+    let changesDetected = false
 
     // Randomize each division's regular matches and referee assignments
     for (const division in divisionMatches) {
       const matches = divisionMatches[division]
+
+      if (matches.length === 0) continue
+
+      if (shouldLog) {
+        console.log(`🎲 Processing division ${division} with ${matches.length} matches`)
+      }
+
+      // Store original state for comparison
+      const originalTimeSlots = matches.map(m => m.timeSlot)
+      const originalReferees = matches.map(m => m.refereeTeam?.name || 'none')
 
       // Shuffle the matches within the division
       shuffleArray(matches)
@@ -105,17 +134,38 @@ export class Schedule {
 
       // Assign the shuffled time slots to the shuffled matches
       matches.forEach((match, index) => {
+        const oldTimeSlot = match.timeSlot
         match.timeSlot = availableTimeSlots[index]
+        if (oldTimeSlot !== match.timeSlot) {
+          changesDetected = true
+        }
       })
 
       // Shuffle referee assignments within this division
       this.shuffleRefereeAssignments(matches)
+
+      // Check if referee assignments changed
+      const newReferees = matches.map(m => m.refereeTeam?.name || 'none')
+      if (JSON.stringify(originalReferees) !== JSON.stringify(newReferees)) {
+        changesDetected = true
+      }
+
+      if (shouldLog) {
+        console.log(
+          `  📊 Time slots changed: ${JSON.stringify(originalTimeSlots)} → ${JSON.stringify(matches.map(m => m.timeSlot))}`
+        )
+        console.log(`  👥 Referees changed: ${JSON.stringify(originalReferees)} → ${JSON.stringify(newReferees)}`)
+      }
     }
 
     // Combine all regular matches back together and add special activities
     const randomizedMatches = [...specialActivities] // Special activities keep their original slots
     for (const division in divisionMatches) {
       randomizedMatches.push(...divisionMatches[division])
+    }
+
+    if (shouldLog) {
+      console.log(`🔀 Randomization complete. Changes detected: ${changesDetected}`)
     }
 
     // Create and return a new schedule
@@ -136,9 +186,10 @@ export class Schedule {
       return
     }
 
-    console.log(
-      `Shuffling referees for ${matches.length} matches with ${originalRefereeTeams.length} original referees`
-    )
+    // Disable frequent logging from referee shuffling
+    // console.log(
+    //   `Shuffling referees for ${matches.length} matches with ${originalRefereeTeams.length} original referees`
+    // )
 
     // Get all unique teams in this division that could potentially referee
     const allTeamsInDivision = new Set<string>()
@@ -152,7 +203,7 @@ export class Schedule {
       .map(refName => originalRefereeTeams.find(ref => ref!.name === refName)!)
       .filter(ref => ref !== null)
 
-    console.log(`Available referee teams: ${availableRefereeTeams.map(ref => ref!.name).join(', ')}`)
+    // console.log(`Available referee teams: ${availableRefereeTeams.map(ref => ref!.name).join(', ')}`)
     shuffleArray(availableRefereeTeams)
 
     // Reset all referee assignments first
@@ -169,7 +220,7 @@ export class Schedule {
       matchesByTimeSlot[match.timeSlot].push(match)
     })
 
-    console.log(`Time slots: ${Object.keys(matchesByTimeSlot).join(', ')}`)
+    // console.log(`Time slots: ${Object.keys(matchesByTimeSlot).join(', ')}`)
 
     // Assign referees for each time slot
     const timeSlots = Object.keys(matchesByTimeSlot)
@@ -181,7 +232,7 @@ export class Schedule {
       const timeSlotMatches = matchesByTimeSlot[timeSlot]
       const usedRefereesThisSlot = new Set<string>()
 
-      console.log(`Assigning referees for time slot ${timeSlot} with ${timeSlotMatches.length} matches`)
+      // console.log(`Assigning referees for time slot ${timeSlot} with ${timeSlotMatches.length} matches`)
 
       for (const match of timeSlotMatches) {
         // Find a referee that:
@@ -203,7 +254,7 @@ export class Schedule {
             assignedReferee = candidateReferee
             usedRefereesThisSlot.add(candidateReferee.name)
             match.refereeTeam = candidateReferee
-            console.log(`  Assigned ${candidateReferee.name} to referee ${match.team1.name} vs ${match.team2.name}`)
+            // console.log(`  Assigned ${candidateReferee.name} to referee ${match.team1.name} vs ${match.team2.name}`)
           }
 
           globalRefereeIndex++
@@ -222,16 +273,16 @@ export class Schedule {
             ) {
               match.refereeTeam = refTeam
               usedRefereesThisSlot.add(refTeam.name)
-              console.log(`  Backup assigned ${refTeam.name} to referee ${match.team1.name} vs ${match.team2.name}`)
+              // console.log(`  Backup assigned ${refTeam.name} to referee ${match.team1.name} vs ${match.team2.name}`)
               break
             }
           }
         }
 
         if (!match.refereeTeam) {
-          console.log(
-            `  WARNING: Could not assign referee for ${match.team1.name} vs ${match.team2.name} at time ${timeSlot}`
-          )
+          // console.log(
+          //   `  WARNING: Could not assign referee for ${match.team1.name} vs ${match.team2.name} at time ${timeSlot}`
+          // )
         }
       }
     }
@@ -256,14 +307,14 @@ export class Schedule {
 
         if (availableReferee) {
           match.refereeTeam = availableReferee
-          console.log(
-            `  Final pass assigned ${availableReferee.name} to referee ${match.team1.name} vs ${match.team2.name}`
-          )
+          // console.log(
+          //   `  Final pass assigned ${availableReferee.name} to referee ${match.team1.name} vs ${match.team2.name}`
+          // )
         }
       }
     }
 
-    console.log('Referee assignment completed')
+    // console.log('Referee assignment completed')
   }
 
   /**
@@ -275,19 +326,11 @@ export class Schedule {
     // Initial evaluation
     this.evaluate()
     const originalScore = this.score
-
-    // Helper function to create deep copies of matches
-    const copyMatches = (matches: Match[]): Match[] => {
-      return matches.map(
-        match => new Match(match.team1, match.team2, match.timeSlot, match.field, match.division, match.refereeTeam)
-      )
-    }
-
     // Create initial copies for optimization - ensuring we have separate instances with deep copied matches
-    let currentSchedule = new Schedule(copyMatches(this.matches), [...this.rules])
+    let currentSchedule = this.deepCopy()
     currentSchedule.evaluate()
 
-    let bestSchedule = new Schedule(copyMatches(this.matches), [...this.rules])
+    let bestSchedule = this.deepCopy()
     bestSchedule.evaluate()
     let bestScore = bestSchedule.score
 
@@ -295,17 +338,49 @@ export class Schedule {
     bestSchedule.originalScore = originalScore
 
     let storage: any = null
+
+    // Initial progress update to show starting state
+    progressCallback?.({
+      iteration: 0,
+      progress: 0,
+      currentScore: currentSchedule.score,
+      bestScore: bestScore,
+      violations: bestSchedule.violations,
+      currentSchedule: currentSchedule,
+      bestScheduleSnapshot: bestSchedule.deepCopy(),
+    })
+
     // Optimization loop
     for (let i = 0; i < iterations; i++) {
       // Allow for progress updates and cancellation
       if (i % 100 === 0) {
+        // Reduced frequency since we have immediate updates for improvements
         await new Promise(resolve => setTimeout(resolve, 0))
+
+        // Only log major checkpoints to reduce noise
+        if (i % 200 === 0 && i > 0) {
+          console.log(`📊 Progress checkpoint at iteration ${i}: best=${bestScore}, current=${currentSchedule.score}`)
+        }
+
+        // Always send a fresh copy of the current best schedule
+        const bestScheduleSnapshot = bestSchedule.deepCopy()
+        bestScheduleSnapshot.evaluate() // Ensure violations are up to date
+
+        // Verify the snapshot matches the best score
+        if (bestScheduleSnapshot.score !== bestScore) {
+          console.warn(
+            `⚠️ Regular update mismatch: bestScore=${bestScore}, scheduleScore=${bestScheduleSnapshot.score}`
+          )
+        }
+
         progressCallback?.({
           iteration: i,
           progress: i / iterations,
           currentScore: currentSchedule.score,
           bestScore: bestScore,
-          violations: bestSchedule.violations,
+          violations: bestScheduleSnapshot.violations,
+          currentSchedule: currentSchedule,
+          bestScheduleSnapshot: bestScheduleSnapshot,
         })
       }
       // Create a new candidate solution
@@ -314,30 +389,59 @@ export class Schedule {
         i
       )
 
-      currentSchedule = optimizationResult.currentSchedule ?? currentSchedule
-      optimizationResult.currentSchedule?.evaluate()
-      storage = optimizationResult.storage === undefined ? storage : optimizationResult.storage
-
-      if (optimizationResult.currentSchedule && optimizationResult.currentSchedule.score < bestScore) {
-        bestSchedule = new Schedule(copyMatches(currentSchedule.matches), [...currentSchedule.rules])
-        bestScore = bestSchedule.evaluate()
-      } else {
-        bestSchedule = optimizationResult.bestSchedule ?? bestSchedule
-        bestScore = optimizationResult.bestSchedule?.evaluate() ?? bestScore
+      // Update current schedule if optimization strategy provided one
+      if (optimizationResult.currentSchedule) {
+        currentSchedule = optimizationResult.currentSchedule
+        currentSchedule.evaluate() // Ensure current schedule is evaluated
       }
-      bestSchedule.originalScore = originalScore
+
+      // Update storage (temperature for simulated annealing)
+      if (optimizationResult.storage !== undefined) {
+        storage = optimizationResult.storage
+      }
+
+      // Update best schedule if optimization strategy found a better one
+      if (optimizationResult.bestSchedule) {
+        bestSchedule = optimizationResult.bestSchedule
+        bestScore = bestSchedule.score // Score should already be calculated
+        bestSchedule.originalScore = originalScore
+
+        // Immediately notify UI of improvement (don't wait for next regular update)
+        // Critical: Use the NEWLY FOUND best schedule, not a copy of previous best
+        const immediateBestSnapshot = optimizationResult.bestSchedule.deepCopy()
+        immediateBestSnapshot.evaluate() // Ensure score and violations are current
+
+        progressCallback?.({
+          iteration: i,
+          progress: i / iterations,
+          currentScore: currentSchedule.score,
+          bestScore: bestScore,
+          violations: immediateBestSnapshot.violations,
+          currentSchedule: currentSchedule,
+          bestScheduleSnapshot: immediateBestSnapshot,
+        })
+      }
     }
 
     // Final progress update
+    const finalBestScheduleSnapshot = bestSchedule.deepCopy()
+    finalBestScheduleSnapshot.evaluate() // Ensure violations are up to date
+
     progressCallback?.({
       iteration: iterations,
       progress: 1,
       currentScore: currentSchedule.score,
       bestScore: bestScore,
-      violations: bestSchedule.violations,
+      violations: finalBestScheduleSnapshot.violations,
+      currentSchedule: currentSchedule,
+      bestScheduleSnapshot: finalBestScheduleSnapshot,
     })
 
     return bestSchedule
+  }
+
+  deepCopy() {
+    return new Schedule(copyMatches(this.matches), [...this.rules])
   }
 }
 
@@ -349,4 +453,19 @@ function shuffleArray<T>(array: T[]): void {
     const j = Math.floor(Math.random() * (i + 1))
     ;[array[i], array[j]] = [array[j], array[i]]
   }
+}
+// Helper function to create deep copies of matches
+const copyMatches = (matches: Match[]): Match[] => {
+  return matches.map(
+    match =>
+      new Match(
+        match.team1,
+        match.team2,
+        match.timeSlot,
+        match.field,
+        match.division,
+        match.refereeTeam,
+        match.activityType
+      )
+  )
 }

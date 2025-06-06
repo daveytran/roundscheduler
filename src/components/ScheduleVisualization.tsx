@@ -24,6 +24,7 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
   const [violations, setViolations] = useState<RuleViolation[]>([])
   const [viewMode, setViewMode] = useState<'by_time' | 'by_field'>('by_time')
   const [selectedDivision, setSelectedDivision] = useState<string>('all')
+  const [showSpecialActivities, setShowSpecialActivities] = useState<boolean>(true)
   const [isViolationsExpanded, setIsViolationsExpanded] = useState<boolean>(false)
 
   useEffect(() => {
@@ -69,8 +70,16 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
     return ''
   }
 
-  // Get card color based on violations
-  const getCardColor = (violations: ViolationInfo[]): string => {
+  // Get card color based on violations and activity type
+  const getCardColor = (violations: ViolationInfo[], match: Match): string => {
+    // Special styling for setup/pack down activities
+    if (match.activityType === 'SETUP') {
+      return 'border-blue-300 bg-blue-50'
+    } else if (match.activityType === 'PACKING_DOWN') {
+      return 'border-purple-300 bg-purple-50'
+    }
+    
+    // Regular violation-based coloring for regular matches
     if (violations.some(v => v.type === 'critical')) {
       return 'border-red-300 bg-red-50'
     } else if (violations.some(v => v.type === 'warning')) {
@@ -99,11 +108,20 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
     (a: number, b: number) => a - b
   )
 
-  // Filter matches by division if needed
-  const filteredMatches: Match[] =
-    selectedDivision === 'all'
-      ? schedule.matches
-      : schedule.matches.filter((match: Match) => match.division === selectedDivision)
+  // Filter matches by division and special activities
+  let filteredMatches: Match[] = schedule.matches
+
+  // Filter by division
+  if (selectedDivision !== 'all') {
+    filteredMatches = filteredMatches.filter((match: Match) => match.division === selectedDivision)
+  }
+
+  // Filter by special activities
+  if (!showSpecialActivities) {
+    filteredMatches = filteredMatches.filter((match: Match) => 
+      match.activityType !== 'SETUP' && match.activityType !== 'PACKING_DOWN'
+    )
+  }
 
   // Group matches by time or field based on view mode
   const groupedMatches: GroupedMatches = {}
@@ -154,14 +172,15 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
 
   const handleExportCSV = (): void => {
     // Create CSV content
-    const headers = ['Time Slot', 'Division', 'Field', 'Team 1', 'Team 2', 'Referee']
+    const headers = ['Time Slot', 'Activity Type', 'Division', 'Field', 'Team 1', 'Team 2', 'Referee']
     const rows = schedule.matches.map((match: Match) => [
       match.timeSlot,
-      match.division,
+      match.activityType || 'REGULAR',
+      match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? match.activityType : match.division,
       match.field,
-      match.team1.name,
-      match.team2.name,
-      match.refereeTeam?.name || '',
+      match.team1.name !== 'ACTIVITY_PLACEHOLDER' ? match.team1.name : '',
+      match.team2.name !== 'ACTIVITY_PLACEHOLDER' ? match.team2.name : '',
+      match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? '' : (match.refereeTeam?.name || ''),
     ])
 
     const csvContent = [headers.join(','), ...rows.map((row: (string | number)[]) => row.join(','))].join('\n')
@@ -183,7 +202,7 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-bold">Schedule Visualization</h2>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
           <select
             value={selectedDivision}
             onChange={e => setSelectedDivision(e.target.value)}
@@ -195,6 +214,16 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
               </option>
             ))}
           </select>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={showSpecialActivities}
+              onChange={e => setShowSpecialActivities(e.target.checked)}
+              className="rounded"
+            />
+            Show Setup/Pack Down
+          </label>
 
           <div className="flex border rounded overflow-hidden">
             <button
@@ -218,7 +247,15 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
       </div>
 
       {/* Color Legend */}
-      <div className="mb-4 flex gap-4 text-sm">
+      <div className="mb-4 flex flex-wrap gap-4 text-sm">
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 bg-blue-100 border border-blue-300 rounded"></div>
+          <span>🔧 Setup Activities</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 bg-purple-100 border border-purple-300 rounded"></div>
+          <span>📦 Pack Down Activities</span>
+        </div>
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 bg-red-100 border border-red-300 rounded"></div>
           <span>Critical (3+ consecutive games for teams/players)</span>
@@ -272,25 +309,51 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
                   return (
                     <div
                       key={idx}
-                      className={`p-3 border rounded ${getCardColor(scheduleViolations)} ${hasLegacyViolation && scheduleViolations.length === 0 ? 'border-red-300 bg-red-50' : ''}`}
+                      className={`p-3 border rounded ${getCardColor(scheduleViolations, match)} ${hasLegacyViolation && scheduleViolations.length === 0 ? 'border-red-300 bg-red-50' : ''}`}
                     >
                       <div className="font-bold mb-1">{match.field}</div>
-                      <div className="flex justify-between items-center mb-1">
-                        <span
-                          className={`${scheduleViolations.length > 0 || hasLegacyViolation ? 'text-red-600 font-semibold' : ''}`}
-                        >
-                          {match.team1.name}
-                        </span>
-                        <span>vs</span>
-                        <span
-                          className={`${scheduleViolations.length > 0 || hasLegacyViolation ? 'text-red-600 font-semibold' : ''}`}
-                        >
-                          {match.team2.name}
-                        </span>
-                      </div>
-                      <div className="text-sm text-gray-600">
-                        {match.division}, {match.refereeTeam ? `Ref: ${match.refereeTeam.name}` : 'No referee'}
-                      </div>
+                      
+                      {/* Special rendering for setup/pack down activities */}
+                      {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? (
+                        <div>
+                          <div className="text-center mb-2">
+                            <span className={`inline-block px-3 py-1 rounded-full text-sm font-bold ${
+                              match.activityType === 'SETUP' 
+                                ? 'bg-blue-200 text-blue-800' 
+                                : 'bg-purple-200 text-purple-800'
+                            }`}>
+                              {match.activityType === 'SETUP' ? '🔧 SETUP' : '📦 PACKING DOWN'}
+                            </span>
+                          </div>
+                          <div className="text-sm text-gray-600 text-center">
+                            {match.team1.name !== 'ACTIVITY_PLACEHOLDER' && match.team2.name !== 'ACTIVITY_PLACEHOLDER' ? (
+                              `Teams: ${match.team1.name}, ${match.team2.name}`
+                            ) : (
+                              'All teams participate'
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        /* Regular match rendering */
+                        <div>
+                          <div className="flex justify-between items-center mb-1">
+                            <span
+                              className={`${scheduleViolations.length > 0 || hasLegacyViolation ? 'text-red-600 font-semibold' : ''}`}
+                            >
+                              {match.team1.name}
+                            </span>
+                            <span>vs</span>
+                            <span
+                              className={`${scheduleViolations.length > 0 || hasLegacyViolation ? 'text-red-600 font-semibold' : ''}`}
+                            >
+                              {match.team2.name}
+                            </span>
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            {match.division}, {match.refereeTeam ? `Ref: ${match.refereeTeam.name}` : 'No referee'}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Show schedule violations */}
                       {scheduleViolations.length > 0 && (
@@ -355,18 +418,44 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
                             className={`border-b ${rowColor} ${hasLegacyViolation && scheduleViolations.length === 0 ? 'bg-red-50' : ''}`}
                           >
                             <td className="p-2 border">{match.timeSlot}</td>
-                            <td className="p-2 border">{match.division}</td>
-                            <td
-                              className={`p-2 border ${scheduleViolations.length > 0 || hasLegacyViolation ? 'text-red-600 font-semibold' : ''}`}
-                            >
-                              {match.team1.name}
+                            <td className="p-2 border">
+                              {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? (
+                                <span className={`inline-block px-2 py-1 rounded text-xs font-bold ${
+                                  match.activityType === 'SETUP' 
+                                    ? 'bg-blue-200 text-blue-800' 
+                                    : 'bg-purple-200 text-purple-800'
+                                }`}>
+                                  {match.activityType === 'SETUP' ? 'SETUP' : 'PACK DOWN'}
+                                </span>
+                              ) : (
+                                match.division
+                              )}
                             </td>
                             <td
                               className={`p-2 border ${scheduleViolations.length > 0 || hasLegacyViolation ? 'text-red-600 font-semibold' : ''}`}
                             >
-                              {match.team2.name}
+                              {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? (
+                                match.team1.name !== 'ACTIVITY_PLACEHOLDER' ? match.team1.name : '-'
+                              ) : (
+                                match.team1.name
+                              )}
                             </td>
-                            <td className="p-2 border">{match.refereeTeam?.name || '-'}</td>
+                            <td
+                              className={`p-2 border ${scheduleViolations.length > 0 || hasLegacyViolation ? 'text-red-600 font-semibold' : ''}`}
+                            >
+                              {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? (
+                                match.team2.name !== 'ACTIVITY_PLACEHOLDER' ? match.team2.name : '-'
+                              ) : (
+                                match.team2.name
+                              )}
+                            </td>
+                            <td className="p-2 border">
+                              {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? (
+                                '-'
+                              ) : (
+                                match.refereeTeam?.name || '-'
+                              )}
+                            </td>
                             <td className="p-2 border">
                               {scheduleViolations.length > 0 ? (
                                 <div className="space-y-1">

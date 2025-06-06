@@ -19,12 +19,13 @@ import {
   RuleConfigurationData,
   OptimizerSettings,
 } from '../lib/localStorage';
-import { CustomRule } from '../models/ScheduleRule';
+import { CustomRule, ScheduleRule } from '../models/ScheduleRule';
 import {
   getDefaultRuleConfigurations,
   createRuleFromConfiguration,
   mergeRuleConfigurations,
 } from '../lib/rules-registry';
+import { Schedule } from '../models/Schedule';
 
 // Get default rule configurations from centralized registry
 const defaultRuleConfigurations = getDefaultRuleConfigurations();
@@ -41,14 +42,13 @@ export default function Home() {
   const [teams, setTeams] = useState<TeamsMap | null>(null);
   const [matches, setMatches] = useState<Match[]>([]);
   const [formattedMatches, setFormattedMatches] = useState<Match[]>([]);
-  const [schedulingRules, setSchedulingRules] = useState<any[]>([]);
+  const [schedulingRules, setSchedulingRules] = useState<ScheduleRule[]>([]);
   const [ruleConfigurations, setRuleConfigurations] = useState<RuleConfigurationData[]>(defaultRuleConfigurations);
   const [optimizerSettings, setOptimizerSettings] = useState<OptimizerSettings>(defaultOptimizerSettings);
-  const [schedule, setSchedule] = useState<any>(null);
+  const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [activeTab, setActiveTab] = useState<string>('import');
   const [dataLoadedFromStorage, setDataLoadedFromStorage] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<string>('');
-  const [showOptimizerInResults, setShowOptimizerInResults] = useState<boolean>(false);
 
   // Initialize rules from configurations
   useEffect(() => {
@@ -157,7 +157,6 @@ export default function Home() {
 
   const handleOptimizationComplete = (optimizedSchedule: any) => {
     setSchedule(optimizedSchedule);
-    setActiveTab('results');
     saveToLocalStorage({ schedule: optimizedSchedule });
   };
 
@@ -182,8 +181,7 @@ export default function Home() {
     { id: 'import', label: 'Import Data' },
     { id: 'format', label: 'Format Options', disabled: !matches.length },
     { id: 'rules', label: 'Rules', disabled: !formattedMatches.length },
-    { id: 'optimize', label: 'Optimize', disabled: !formattedMatches.length },
-    { id: 'results', label: 'Results', disabled: !schedule },
+    { id: 'optimize', label: 'Optimize & Results', disabled: !formattedMatches.length },
   ];
 
   return (
@@ -386,7 +384,7 @@ export default function Home() {
               </div>
 
               <ImportPlayers onImportComplete={handlePlayersImport} />
-              <ImportSchedule teams={teams} onImportComplete={handleScheduleImport} />
+              <ImportSchedule teams={teams} rules={schedulingRules} onImportComplete={handleScheduleImport} />
             </>
           )}
 
@@ -401,112 +399,87 @@ export default function Home() {
           )}
 
           {activeTab === 'optimize' && (
-            <ScheduleOptimizer
-              matches={formattedMatches}
-              rules={schedulingRules}
-              initialSettings={optimizerSettings}
-              onSettingsChange={handleOptimizerSettingsChange}
-              onOptimizationComplete={handleOptimizationComplete}
-            />
-          )}
-
-          {activeTab === 'results' && schedule && (
             <div className="space-y-6">
-              {/* Optimize Again Section */}
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="flex justify-between items-center mb-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-800">Schedule Results</h3>
+              {/* Optimizer Section */}
+              <ScheduleOptimizer
+                matches={formattedMatches}
+                rules={schedulingRules}
+                initialSettings={optimizerSettings}
+                onSettingsChange={handleOptimizerSettingsChange}
+                onOptimizationComplete={handleOptimizationComplete}
+              />
 
-                    {/* Show optimization comparison if available */}
-                    {schedule.originalScore !== undefined && schedule.originalScore !== schedule.score ? (
-                      <div className="space-y-1">
+              {/* Results Section - show when schedule exists */}
+              {schedule && (
+                <div className="bg-white rounded-lg shadow p-4">
+                  <div className="flex justify-between items-center mb-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-800">Final Optimization Results</h3>
+
+                      {/* Show optimization comparison if available */}
+                      {schedule.originalScore !== undefined && schedule.originalScore !== schedule.score ? (
+                        <div className="space-y-1">
+                          <p className="text-sm text-gray-600">
+                            <span className="font-medium">Original score:</span> {schedule.originalScore}
+                            <span className="ml-2 text-gray-500">(before optimization)</span>
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            <span className="font-medium">Optimized score:</span> {schedule.score}
+                            {schedule.score === 0 ? (
+                              <span className="ml-2 text-green-600 font-medium">🎉 Perfect schedule!</span>
+                            ) : (
+                              <span className="ml-2 text-amber-600">(Lower is better)</span>
+                            )}
+                          </p>
+                          <p className="text-xs text-green-700 bg-green-50 px-2 py-1 rounded inline-block">
+                            ✅ Improved by {schedule.originalScore - schedule.score} points (
+                            {Math.round(((schedule.originalScore - schedule.score) / schedule.originalScore) * 100)}%
+                            better)
+                          </p>
+                        </div>
+                      ) : schedule.originalScore !== undefined && schedule.originalScore === schedule.score ? (
+                        <div className="space-y-1">
+                          <p className="text-sm text-gray-600">
+                            <span className="font-medium">Schedule score:</span> {schedule.score}
+                            {schedule.score === 0 ? (
+                              <span className="ml-2 text-green-600 font-medium">🎉 Perfect schedule!</span>
+                            ) : (
+                              <span className="ml-2 text-amber-600">(Lower is better)</span>
+                            )}
+                          </p>
+                          <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded inline-block">
+                            ⚠️ No improvement found during optimization
+                          </p>
+                        </div>
+                      ) : (
                         <p className="text-sm text-gray-600">
-                          <span className="font-medium">Original score:</span> {schedule.originalScore}
-                          <span className="ml-2 text-gray-500">(before optimization)</span>
-                        </p>
-                        <p className="text-sm text-gray-600">
-                          <span className="font-medium">Optimized score:</span> {schedule.score}
+                          Current schedule score: <span className="font-medium">{schedule.score}</span>
                           {schedule.score === 0 ? (
                             <span className="ml-2 text-green-600 font-medium">🎉 Perfect schedule!</span>
                           ) : (
                             <span className="ml-2 text-amber-600">(Lower is better)</span>
                           )}
                         </p>
-                        <p className="text-xs text-green-700 bg-green-50 px-2 py-1 rounded inline-block">
-                          ✅ Improved by {schedule.originalScore - schedule.score} points (
-                          {Math.round(((schedule.originalScore - schedule.score) / schedule.originalScore) * 100)}%
-                          better)
-                        </p>
-                      </div>
-                    ) : schedule.originalScore !== undefined && schedule.originalScore === schedule.score ? (
-                      <div className="space-y-1">
-                        <p className="text-sm text-gray-600">
-                          <span className="font-medium">Schedule score:</span> {schedule.score}
-                          {schedule.score === 0 ? (
-                            <span className="ml-2 text-green-600 font-medium">🎉 Perfect schedule!</span>
-                          ) : (
-                            <span className="ml-2 text-amber-600">(Lower is better)</span>
-                          )}
-                        </p>
-                        <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded inline-block">
-                          ⚠️ No improvement found during optimization
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-gray-600">
-                        Current schedule score: <span className="font-medium">{schedule.score}</span>
-                        {schedule.score === 0 ? (
-                          <span className="ml-2 text-green-600 font-medium">🎉 Perfect schedule!</span>
-                        ) : (
-                          <span className="ml-2 text-amber-600">(Lower is better)</span>
-                        )}
+                      )}
+
+                      <p className="text-xs text-gray-500 mt-2">
+                        This is the final optimized schedule. Live optimization progress is shown above during optimization.
                       </p>
-                    )}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setActiveTab('rules')}
+                        className="px-4 py-2 bg-purple-500 text-white rounded font-medium hover:bg-purple-600 transition-colors"
+                      >
+                        ⚙️ Adjust Rules
+                      </button>
+                    </div>
+                  </div>
 
-                    <p className="text-xs text-gray-500 mt-2">
-                      Optimization includes shuffling match times and referee assignments to minimize rule violations.
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setShowOptimizerInResults(!showOptimizerInResults)}
-                      className={`px-4 py-2 rounded font-medium transition-colors ${
-                        showOptimizerInResults
-                          ? 'bg-gray-500 text-white hover:bg-gray-600'
-                          : 'bg-blue-500 text-white hover:bg-blue-600'
-                      }`}
-                    >
-                      {showOptimizerInResults ? 'Hide Optimizer' : '🔄 Optimize Again'}
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('rules')}
-                      className="px-4 py-2 bg-purple-500 text-white rounded font-medium hover:bg-purple-600 transition-colors"
-                    >
-                      ⚙️ Adjust Rules
-                    </button>
-                  </div>
+                  {/* Final Schedule Visualization */}
+                  <ScheduleVisualization schedule={schedule} />
                 </div>
-
-                {/* Show optimizer inline when toggled */}
-                {showOptimizerInResults && (
-                  <div className="border-t pt-4">
-                    <ScheduleOptimizer
-                      matches={formattedMatches}
-                      rules={schedulingRules}
-                      initialSettings={optimizerSettings}
-                      onSettingsChange={handleOptimizerSettingsChange}
-                      onOptimizationComplete={optimizedSchedule => {
-                        handleOptimizationComplete(optimizedSchedule);
-                        setShowOptimizerInResults(false);
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Schedule Visualization */}
-              <ScheduleVisualization schedule={schedule} />
+              )}
             </div>
           )}
         </div>

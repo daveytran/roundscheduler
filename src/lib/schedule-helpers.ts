@@ -120,15 +120,20 @@ export const ScheduleHelpers = {
    * @param rule Rule name
    * @param description Description of the violation
    * @param matches Matches involved (optional)
-   * @param severity Severity level (optional)
+   * @param level Severity level (optional)
    * @returns Formatted violation object
    */
-  createViolation(rule: string, description: string, matches?: Match[], priority: number = 1): RuleViolation {
+  createViolation(
+    rule: string,
+    description: string,
+    matches?: Match[],
+    level: 'warning' | 'critical' = 'warning'
+  ): RuleViolation {
     return {
       rule,
       description,
       matches,
-      priority,
+      level,
     };
   },
 

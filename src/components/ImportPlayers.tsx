@@ -9,13 +9,10 @@ interface ImportPlayersProps {
 
 interface ImportedRow {
   name?: string;
-  playerName?: string;
-  mixedTeam?: string;
-  mixedDivisionTeam?: string;
-  genderedTeam?: string;
-  genderedDivisionTeam?: string;
-  clothTeam?: string;
-  clothDivisionTeam?: string;
+  gender?: string;
+  mixedClub?: string;
+  genderedClub?: string;
+  clothClub?: string;
 }
 
 export default function ImportPlayers({ onImportComplete }: ImportPlayersProps) {
@@ -28,14 +25,29 @@ export default function ImportPlayers({ onImportComplete }: ImportPlayersProps) 
 
   const fields = [
     { label: 'Player Name', key: 'name', fieldType: { type: 'input' } },
-    { label: 'Player Name (Alt)', key: 'playerName', fieldType: { type: 'input' }, optional: true },
-    { label: 'Mixed Division Team', key: 'mixedTeam', fieldType: { type: 'input' }, optional: true },
-    { label: 'Mixed Division Team (Alt)', key: 'mixedDivisionTeam', fieldType: { type: 'input' }, optional: true },
-    { label: 'Gendered Team', key: 'genderedTeam', fieldType: { type: 'input' }, optional: true },
-    { label: 'Gendered Team (Alt)', key: 'genderedDivisionTeam', fieldType: { type: 'input' }, optional: true },
-    { label: 'Cloth Team', key: 'clothTeam', fieldType: { type: 'input' }, optional: true },
-    { label: 'Cloth Team (Alt)', key: 'clothDivisionTeam', fieldType: { type: 'input' }, optional: true },
+    { label: 'Gender', key: 'gender', fieldType: { type: 'input' }, optional: true },
+    { label: 'Mixed Division Club', key: 'mixedClub', fieldType: { type: 'input' }, optional: true },
+    { label: 'Gendered Division Club', key: 'genderedClub', fieldType: { type: 'input' }, optional: true },
+    { label: 'Cloth Division Club', key: 'clothClub', fieldType: { type: 'input' }, optional: true },
   ] as const;
+
+  // Helper function to format team names with division type
+  const formatTeamName = (clubName: string, division: string, gender?: string): string => {
+    if (division === 'mixed') {
+      return `${clubName} (Mixed)`;
+    } else if (division === 'gendered') {
+      if (gender?.toLowerCase().startsWith('f') || gender?.toLowerCase() === 'female') {
+        return `${clubName} (Womens)`;
+      } else if (gender?.toLowerCase().startsWith('m') || gender?.toLowerCase() === 'male') {
+        return `${clubName} (Mens)`;
+      } else {
+        return `${clubName} (Gendered)`;
+      }
+    } else if (division === 'cloth') {
+      return `${clubName} (Cloth)`;
+    }
+    return clubName;
+  };
 
   const parsePastedData = (text: string): ImportedRow[] => {
     const lines = text.trim().split('\n');
@@ -55,15 +67,59 @@ export default function ImportPlayers({ onImportComplete }: ImportPlayersProps) 
             // Map common header variations to our expected fields
             if (header.includes('name') || header.includes('player')) {
               row.name = value;
-            } else if (header.includes('mixed')) {
-              row.mixedTeam = value;
-            } else if (header.includes('cloth') || header.includes('spirit')) {
-              row.clothTeam = value;
-            } else if (header.includes('gender') || header.includes('women') || header.includes('men')) {
-              row.genderedTeam = value;
+            } else if (
+              header.includes('mixed') &&
+              (header.includes('team') || header.includes('club') || header.includes('division'))
+            ) {
+              row.mixedClub = value;
+            } else if (header.includes('cloth') || header.includes('open')) {
+              row.clothClub = value;
+            } else if (
+              header.includes('gendered') ||
+              header.includes('foam') ||
+              header.includes('women') ||
+              header.includes('men')
+            ) {
+              row.genderedClub = value;
+            } else if (header.includes('gender') || header.includes('sex')) {
+              row.gender = value;
             }
           }
         });
+
+        // Handle gender in last column if header is empty/unrecognized and value looks like gender
+        if (!row.gender && values.length > 0) {
+          const lastValue = values[values.length - 1]?.trim();
+          if (
+            lastValue &&
+            (lastValue.toLowerCase() === 'm' ||
+              lastValue.toLowerCase() === 'f' ||
+              lastValue.toLowerCase() === 'male' ||
+              lastValue.toLowerCase() === 'female')
+          ) {
+            row.gender = lastValue;
+          }
+        }
+
+        // If no name was found but we have values, try to find player name in likely positions
+        if (!row.name && values.length > 0) {
+          // Look for a column that contains a proper name (has spaces and capital letters)
+          for (let i = 0; i < values.length; i++) {
+            const value = values[i]?.trim();
+            if (
+              value &&
+              value.includes(' ') &&
+              /[A-Z]/.test(value) &&
+              !headers[i]?.includes('team') &&
+              !headers[i]?.includes('club') &&
+              !headers[i]?.includes('division') &&
+              value !== row.gender
+            ) {
+              row.name = value;
+              break;
+            }
+          }
+        }
 
         return row;
       })
@@ -101,17 +157,21 @@ export default function ImportPlayers({ onImportComplete }: ImportPlayersProps) 
         return;
       }
 
-      // Convert imported rows to Player objects
+      // Convert imported rows to Player objects with formatted team names
       const importedPlayers = rows
-        .map(
-          row =>
-            new Player(
-              row.name || row.playerName || '',
-              row.mixedTeam || row.mixedDivisionTeam || null,
-              row.genderedTeam || row.genderedDivisionTeam || null,
-              row.clothTeam || row.clothDivisionTeam || null
-            )
-        )
+        .map(row => {
+          const playerName = row.name || '';
+          const gender = row.gender || '';
+
+          // Format team names with division types
+          const mixedTeam = row.mixedClub ? formatTeamName(row.mixedClub || '', 'mixed') : null;
+
+          const genderedTeam = row.genderedClub ? formatTeamName(row.genderedClub || '', 'gendered', gender) : null;
+
+          const clothTeam = row.clothClub ? formatTeamName(row.clothClub || '', 'cloth') : null;
+
+          return new Player(playerName, mixedTeam, genderedTeam, clothTeam);
+        })
         .filter(player => player.name.trim() !== ''); // Filter out empty names
 
       if (importedPlayers.length === 0) {
@@ -146,17 +206,26 @@ export default function ImportPlayers({ onImportComplete }: ImportPlayersProps) 
 
   return (
     <div className="p-4 bg-white rounded shadow">
-      <h2 className="text-xl font-bold mb-4">Import Players</h2>
+      <h2 className="text-xl font-bold mb-4">Import Players & Clubs</h2>
 
       {!showResults ? (
         <div>
           <div className="mb-4">
             <p className="text-sm text-gray-600 mb-4">
-              Upload a CSV file with player data. The importer will help you map columns to the correct fields:
+              Upload a CSV file or paste tab-separated data with player information. The importer supports various
+              column formats:
               <br />
               <strong>Required:</strong> Player Name
               <br />
-              <strong>Optional:</strong> Mixed Division Team, Gendered Team, Cloth Team
+              <strong>Optional:</strong> Gender, Mixed Division Club, Gendered Division Club, Cloth Division Club
+              <br />
+              <strong>Supported formats:</strong> CSV, TSV, or data copied from Excel/Google Sheets
+              <br />
+              <em>
+                Note: Teams will be named &quot;{'{'}Club Name{'}'} ({'{'}Division Type{'}'}){'&quot;'}. For gendered
+                divisions, &apos;F&apos;/&apos;Female&apos; creates womens teams, &apos;M&apos;/&apos;Male&apos; creates
+                mens teams.
+              </em>
             </p>
           </div>
 
@@ -181,9 +250,14 @@ export default function ImportPlayers({ onImportComplete }: ImportPlayersProps) 
                 onChange={e => setPastedData(e.target.value)}
                 placeholder="Paste your player data here (with headers)... 
 Example:
-Name,Mixed Team,Gendered Team,Cloth Team
-John Doe,Team A,Team B,Team C
-Jane Smith,Team A,Team D,Team E"
+Name,Gender,Mixed Club,Gendered Club,Cloth Club
+John Doe,M,Phoenix,Phoenix,Phoenix
+Jane Smith,F,Lightning,Lightning,Lightning
+
+Or tab-separated format:
+Mixed Team	Gendered Foam	Open Cloth	Player	
+North Star Storm	North Star Storm	North Star Storm	Adrian Bird	M
+Sun Valley Storm		Hoxton Park Hedgehogs	Ahmed Chatila	M"
                 className="w-full h-32 p-3 border border-gray-300 rounded resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
               <div className="mt-3 space-y-2">

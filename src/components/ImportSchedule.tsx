@@ -3,9 +3,13 @@ import { ReactSpreadsheetImport } from 'react-spreadsheet-import';
 import { parseCSV, importSchedule } from '../lib/importUtils';
 import { Team, TeamsMap } from '../models/Team';
 import { Match } from '../models/Match';
+import { Schedule } from '../models/Schedule';
+import ScheduleVisualization from './ScheduleVisualization';
+import { ScheduleRule } from '../models/ScheduleRule';
 
 interface ImportScheduleProps {
   teams?: TeamsMap | null;
+  rules?: ScheduleRule[]; // Scheduling rules for violation detection
   onImportComplete?: (matches: Match[]) => void;
 }
 
@@ -28,29 +32,21 @@ interface ImportedScheduleRow {
   teamReferee?: string;
 }
 
-export default function ImportSchedule({ teams, onImportComplete }: ImportScheduleProps) {
+export default function ImportSchedule({ teams, rules = [], onImportComplete }: ImportScheduleProps) {
   const [matches, setMatches] = useState<Match[]>([]);
+  const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showResults, setShowResults] = useState<boolean>(false);
   const [isImportOpen, setIsImportOpen] = useState<boolean>(false);
   const [pastedData, setPastedData] = useState<string>('');
 
   const fields = [
-    { label: 'Time Slot', key: 'timeSlot', fieldType: { type: 'input' }, optional: true },
-    { label: 'Time', key: 'time', fieldType: { type: 'input' }, optional: true },
     { label: 'Round', key: 'round', fieldType: { type: 'input' }, optional: true },
     { label: 'Division', key: 'division', fieldType: { type: 'input' } },
-    { label: 'Field', key: 'field', fieldType: { type: 'input' }, optional: true },
+    { label: 'Time', key: 'time', fieldType: { type: 'input' }, optional: true },
+    { label: 'Home Team', key: 'homeTeam', fieldType: { type: 'input' } },
+    { label: 'Away Team', key: 'awayTeam', fieldType: { type: 'input' } },
     { label: 'Court', key: 'court', fieldType: { type: 'input' }, optional: true },
-    { label: 'Pitch', key: 'pitch', fieldType: { type: 'input' }, optional: true },
-    { label: 'Team 1', key: 'team1', fieldType: { type: 'input' } },
-    { label: 'Home Team', key: 'homeTeam', fieldType: { type: 'input' }, optional: true },
-    { label: 'Home', key: 'home', fieldType: { type: 'input' }, optional: true },
-    { label: 'Team 2', key: 'team2', fieldType: { type: 'input' } },
-    { label: 'Away Team', key: 'awayTeam', fieldType: { type: 'input' }, optional: true },
-    { label: 'Away', key: 'away', fieldType: { type: 'input' }, optional: true },
-    { label: 'Referee', key: 'referee', fieldType: { type: 'input' }, optional: true },
-    { label: 'Referee Team', key: 'refereeTeam', fieldType: { type: 'input' }, optional: true },
     { label: 'Team Referee', key: 'teamReferee', fieldType: { type: 'input' }, optional: true },
   ] as const;
 
@@ -61,7 +57,7 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
     const headers = lines[0].split(/[,\t]/).map(h => h.trim().toLowerCase());
     const dataRows = lines.slice(1);
 
-    return dataRows
+    const parsedRows = dataRows
       .map(line => {
         const values = line.split(/[,\t]/).map(v => v.trim());
         const row: ImportedScheduleRow = {};
@@ -78,19 +74,76 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
               row.division = value;
             } else if (header.includes('field') || header.includes('court') || header.includes('pitch')) {
               row.field = value;
-            } else if (header.includes('team1') || header.includes('home')) {
+            } else if (header.includes('home') && header.includes('team')) {
+              row.homeTeam = value;
+            } else if (header.includes('away') && header.includes('team')) {
+              row.awayTeam = value;
+            } else if (
+              header.includes('team1') ||
+              (header.includes('team') &&
+                !header.includes('referee') &&
+                !header.includes('home') &&
+                !header.includes('away'))
+            ) {
               row.team1 = value;
-            } else if (header.includes('team2') || header.includes('away')) {
+            } else if (header.includes('team2')) {
               row.team2 = value;
             } else if (header.includes('referee') || header.includes('ref')) {
-              row.referee = value;
+              if (header.includes('team')) {
+                row.teamReferee = value;
+              } else {
+                row.referee = value;
+              }
             }
           }
         });
 
+        // Set team1/team2 from homeTeam/awayTeam if not already set
+        if (!row.team1 && row.homeTeam) row.team1 = row.homeTeam;
+        if (!row.team2 && row.awayTeam) row.team2 = row.awayTeam;
+        if (!row.referee && row.teamReferee) row.referee = row.teamReferee;
+
         return row;
-      })
-      .filter(row => row.team1 && row.team2); // Only include rows with both teams
+      });
+
+    // Process rows to mark all rows after packdown as packdown activities
+    let packdownStarted = false;
+    const processedRows = parsedRows.map(row => {
+      // Check if this row is a packdown activity
+      const isPackdownRow =
+        row.round?.toLowerCase().includes('packing') ||
+        row.team1?.toLowerCase().includes('packing');
+      
+      if (isPackdownRow) {
+        packdownStarted = true;
+      }
+
+      // If packdown has started, treat all subsequent rows as packdown
+      if (packdownStarted && !isPackdownRow) {
+        // Convert this row to a packdown activity
+        if (!row.round?.toLowerCase().includes('packing')) {
+          row.round = row.round ? `${row.round} - PACKING DOWN` : 'PACKING DOWN';
+        }
+        if (!row.team1?.toLowerCase().includes('packing')) {
+          row.team1 = row.team1 ? `${row.team1} - PACKING DOWN` : 'PACKING DOWN';
+        }
+      }
+
+      return row;
+    });
+
+    return processedRows.filter(row => {
+      // Keep setup/packing rows and regular matches with both teams
+      const isSpecialRow =
+        row.round?.toLowerCase().includes('setup') ||
+        row.round?.toLowerCase().includes('packing') ||
+        row.team1?.toLowerCase().includes('setup') ||
+        row.team1?.toLowerCase().includes('packing');
+      
+      // For special activities, we only need one team identifier
+      // For regular matches, we need both teams
+      return isSpecialRow || (row.team1 && row.team2);
+    });
   };
 
   const handlePastedScheduleImport = () => {
@@ -133,16 +186,25 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
       // Convert rows to the format expected by importSchedule utility
       // Create a CSV-like string from the imported data for compatibility with existing logic
       // Format: Round, Division, Time, Team1, Team2, Court, Referee (7 columns)
-      const csvData = rows
+                const csvData = rows
         .map(row => {
+          // Include round field for special activity detection
           const round = row.round || '';
           const division = row.division || '';
-          const time = row.timeSlot || row.time || '';
+
+          // Convert time format if needed (e.g., "9:30" to time slot number)
+          let time = row.timeSlot || row.time || '';
+          if (time.includes(':')) {
+            const [hours, minutes] = time.split(':');
+            time = `${parseInt(hours)}${minutes.padStart(2, '0')}`;
+          }
+
           const team1 = row.team1 || row.homeTeam || row.home || '';
           const team2 = row.team2 || row.awayTeam || row.away || '';
           const field = row.field || row.court || row.pitch || '';
           const referee = row.referee || row.refereeTeam || row.teamReferee || '';
 
+          // Format: Round, Division, Time, Team1, Team2, Field, Referee
           return [round, division, time, team1, team2, field, referee].join(',');
         })
         .join('\n');
@@ -158,6 +220,12 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
       }
 
       setMatches(importedMatches);
+      
+      // Create Schedule object for visualization with rules
+      const newSchedule = new Schedule(importedMatches, rules);
+      newSchedule.evaluate(); // Calculate violations using the provided rules
+      setSchedule(newSchedule);
+      
       setShowResults(true);
       setIsImportOpen(false);
 
@@ -173,20 +241,12 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
 
   const resetImport = () => {
     setMatches([]);
+    setSchedule(null);
     setError(null);
     setShowResults(false);
   };
 
-  // Format time for display
-  const formatTimeSlot = (timeSlot: number): string => {
-    // Check if timeSlot is a time value (e.g. 930 for 9:30)
-    if (timeSlot >= 100) {
-      const hours = Math.floor(timeSlot / 100);
-      const minutes = timeSlot % 100;
-      return `${hours}:${minutes.toString().padStart(2, '0')}`;
-    }
-    return timeSlot.toString();
-  };
+
 
   return (
     <div className="p-4 bg-white rounded shadow">
@@ -196,11 +256,22 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
         <div>
           <div className="mb-4">
             <p className="text-sm text-gray-600 mb-4">
-              Upload a CSV file with match schedule data. The importer will help you map columns to the correct fields:
+              Upload a CSV file or paste tab-separated data with match schedule information. The importer supports
+              various column formats:
               <br />
-              <strong>Required:</strong> Division, Team 1, Team 2
+              <strong>Required:</strong> Division, Home Team, Away Team
               <br />
-              <strong>Optional:</strong> Time/Round, Field/Court, Referee Team
+              <strong>Optional:</strong> Round, Time, Field/Court, Team Referee
+              <br />
+              <strong>Supported formats:</strong> CSV, TSV, or data copied from Excel/Google Sheets
+              <br />
+              <em>Note: SETUP and PACKING DOWN activities will be preserved and protected from shuffling</em>
+              {rules.length > 0 && (
+                <>
+                  <br />
+                  <span className="text-blue-600">✓ {rules.length} scheduling rules active - violations will be automatically detected</span>
+                </>
+              )}
             </p>
 
             {!teams && (
@@ -230,10 +301,15 @@ export default function ImportSchedule({ teams, onImportComplete }: ImportSchedu
                 value={pastedData}
                 onChange={e => setPastedData(e.target.value)}
                 placeholder="Paste your schedule data here (with headers)... 
-Example:
+Example CSV:
 Time,Division,Field,Team1,Team2,Referee
 9:00,Mixed,Field 1,Team A,Team B,Team C
-10:00,Mixed,Field 2,Team D,Team E,Team F"
+10:00,Mixed,Field 2,Team D,Team E,Team F
+
+Or tab-separated format:
+Round	Division	Time	Home Team	Away Team	Court	Team Referee
+Mixed Foam	MX2	9:30	Fairfield Falcons	UTS Lizards	1	Fairlight Ascendents
+	MX2	10:20	Canterbury Nines	Chatswood Chibis	2	Villawood Hydra"
                 className="w-full h-32 p-3 border border-gray-300 rounded resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
               <div className="mt-3 space-y-2">
@@ -305,38 +381,26 @@ Time,Division,Field,Team1,Team2,Referee
 
       {error && <div className="p-3 mb-4 bg-red-100 border border-red-300 text-red-700 rounded">{error}</div>}
 
-      {matches.length > 0 && (
-        <div>
-          <h3 className="font-bold mb-2">Imported {matches.length} Matches</h3>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="bg-gray-100">
-                  <th className="p-2 text-left border">Time Slot</th>
-                  <th className="p-2 text-left border">Division</th>
-                  <th className="p-2 text-left border">Field/Court</th>
-                  <th className="p-2 text-left border">Team 1</th>
-                  <th className="p-2 text-left border">Team 2</th>
-                  <th className="p-2 text-left border">Referee</th>
-                </tr>
-              </thead>
-              <tbody>
-                {matches
-                  .sort((a, b) => a.timeSlot - b.timeSlot)
-                  .map((match, index) => (
-                    <tr key={index} className="border-b">
-                      <td className="p-2 border">{formatTimeSlot(match.timeSlot)}</td>
-                      <td className="p-2 border">{match.division}</td>
-                      <td className="p-2 border">{match.field}</td>
-                      <td className="p-2 border">{match.team1.name}</td>
-                      <td className="p-2 border">{match.team2.name}</td>
-                      <td className="p-2 border">{match.refereeTeam?.name || '-'}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
+      {schedule && (
+        <div className="mt-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-bold">Imported {matches.length} Matches</h3>
+            {schedule.violations && schedule.violations.length > 0 && (
+              <div className="text-sm">
+                <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full">
+                  ⚠️ {schedule.violations.length} rule violation{schedule.violations.length !== 1 ? 's' : ''} detected (Score: {schedule.score})
+                </span>
+              </div>
+            )}
+            {schedule.violations && schedule.violations.length === 0 && (
+              <div className="text-sm">
+                <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full">
+                  ✅ No rule violations detected
+                </span>
+              </div>
+            )}
           </div>
+          <ScheduleVisualization schedule={schedule} />
         </div>
       )}
     </div>

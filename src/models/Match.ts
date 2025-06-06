@@ -59,6 +59,25 @@ export class Match {
   }
 
   /**
+   * Helper function to find a team by name across all divisions
+   * @param teamName - Name of the team to find
+   * @param teamsMap - Map of teams organized by division
+   * @returns The team if found, null otherwise
+   */
+  private static findTeamAcrossDivisions(teamName: string, teamsMap: TeamsMap): Team | null {
+    // Search through all divisions
+    const divisions: Division[] = ['mixed', 'gendered', 'cloth'];
+    
+    for (const division of divisions) {
+      if (teamsMap[division] && teamsMap[division][teamName]) {
+        return teamsMap[division][teamName];
+      }
+    }
+    
+    return null;
+  }
+
+  /**
    * Create matches from imported schedule data
    */
   static createMatchesFromSchedule(scheduleData: string[][], teamsMap: TeamsMap): Match[] {
@@ -74,7 +93,8 @@ export class Match {
 
       const team1 = teamsMap[division][team1Name];
       const team2 = teamsMap[division][team2Name];
-      const refereeTeam = refereeTeamName ? teamsMap[division][refereeTeamName] : null;
+      // Search for referee team across all divisions, not just the current division
+      const refereeTeam = refereeTeamName ? this.findTeamAcrossDivisions(refereeTeamName, teamsMap) : null;
 
       if (!team1 || !team2) {
         throw new Error(`Teams not found: ${team1Name} or ${team2Name} in division ${division}`);

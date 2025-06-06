@@ -15,6 +15,8 @@ export interface OptimizationProgressInfo {
   currentScore: number;
   bestScore: number;
   violations: RuleViolation[];
+  currentSchedule?: Schedule; // Current schedule being evaluated
+  bestScheduleSnapshot?: Schedule; // Best schedule found so far
 }
 
 // Type for optimization options

@@ -24,11 +24,13 @@ export function createMockMatch(
   timeSlot: number,
   field: string = 'Field 1',
   division: Division = 'mixed',
-  refereeTeamName?: string
+  refereeTeamName?: string,
+  refereeDivision?: Division
 ): Match {
   const team1 = createMockTeam(team1Name, division, [`${team1Name} Player 1`, `${team1Name} Player 2`]);
   const team2 = createMockTeam(team2Name, division, [`${team2Name} Player 1`, `${team2Name} Player 2`]);
-  const refereeTeam = refereeTeamName ? createMockTeam(refereeTeamName, division) : null;
+  // Allow referee team to be from a different division than the playing teams
+  const refereeTeam = refereeTeamName ? createMockTeam(refereeTeamName, refereeDivision || division) : null;
 
   return new Match(team1, team2, timeSlot, field, division, refereeTeam);
 }
@@ -44,6 +46,7 @@ export function createMockMatches(
     field?: string;
     division?: Division;
     referee?: string;
+    refereeDivision?: Division;
   }>
 ): Match[] {
   return matchData.map(data =>
@@ -53,7 +56,8 @@ export function createMockMatches(
       data.timeSlot,
       data.field || 'Field 1',
       data.division || 'mixed',
-      data.referee
+      data.referee,
+      data.refereeDivision
     )
   );
 }
