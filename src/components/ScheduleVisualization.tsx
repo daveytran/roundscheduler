@@ -1,40 +1,40 @@
-import React, { useState, useEffect } from 'react';
-import { Schedule } from '../models/Schedule';
-import { Match } from '../models/Match';
-import { RuleViolation } from '../models/RuleViolation';
+import React, { useState, useEffect } from 'react'
+import { Schedule } from '../models/Schedule'
+import { Match } from '../models/Match'
+import { RuleViolation } from '../models/RuleViolation'
 
 interface ScheduleVisualizationProps {
-  schedule: Schedule;
+  schedule: Schedule
 }
 
 interface GroupedMatches {
-  [key: string]: Match[];
+  [key: string]: Match[]
 }
 
 interface GroupedMatchesByTime {
-  [timeSlot: number]: Match[];
+  [timeSlot: number]: Match[]
 }
 
 interface ViolationInfo {
-  type: 'critical' | 'warning';
-  message: string;
+  type: 'critical' | 'warning'
+  message: string
 }
 
 export default function ScheduleVisualization({ schedule }: ScheduleVisualizationProps) {
-  const [violations, setViolations] = useState<RuleViolation[]>([]);
-  const [viewMode, setViewMode] = useState<'by_time' | 'by_field'>('by_time');
-  const [selectedDivision, setSelectedDivision] = useState<string>('all');
-  const [isViolationsExpanded, setIsViolationsExpanded] = useState<boolean>(false);
+  const [violations, setViolations] = useState<RuleViolation[]>([])
+  const [viewMode, setViewMode] = useState<'by_time' | 'by_field'>('by_time')
+  const [selectedDivision, setSelectedDivision] = useState<string>('all')
+  const [isViolationsExpanded, setIsViolationsExpanded] = useState<boolean>(false)
 
   useEffect(() => {
     if (schedule) {
-      setViolations(schedule.violations || []);
+      setViolations(schedule.violations || [])
     }
-  }, [schedule]);
+  }, [schedule])
 
   // Get violations for a specific match using the rule system
   const getMatchViolations = (match: Match): ViolationInfo[] => {
-    const matchViolations: ViolationInfo[] = [];
+    const matchViolations: ViolationInfo[] = []
 
     // Check schedule violations that involve this match
     schedule.violations?.forEach(violation => {
@@ -48,37 +48,36 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
             m.team2.name === match.team2.name
         )
       ) {
-        // Convert priority to severity type
-        const type = (violation.priority || 1) >= 10 ? 'critical' : 'warning';
+        
         matchViolations.push({
-          type,
+          type: violation.level,
           message: violation.description,
-        });
+        })
       }
-    });
+    })
 
-    return matchViolations;
-  };
+    return matchViolations
+  }
 
   // Get row color based on violations
   const getRowColor = (violations: ViolationInfo[]): string => {
     if (violations.some(v => v.type === 'critical')) {
-      return 'bg-red-100 border-red-300';
+      return 'bg-red-100 border-red-300'
     } else if (violations.some(v => v.type === 'warning')) {
-      return 'bg-yellow-100 border-yellow-300';
+      return 'bg-yellow-100 border-yellow-300'
     }
-    return '';
-  };
+    return ''
+  }
 
   // Get card color based on violations
   const getCardColor = (violations: ViolationInfo[]): string => {
     if (violations.some(v => v.type === 'critical')) {
-      return 'border-red-300 bg-red-50';
+      return 'border-red-300 bg-red-50'
     } else if (violations.some(v => v.type === 'warning')) {
-      return 'border-yellow-300 bg-yellow-50';
+      return 'border-yellow-300 bg-yellow-50'
     }
-    return 'border-gray-200';
-  };
+    return 'border-gray-200'
+  }
 
   if (!schedule || !schedule.matches || schedule.matches.length === 0) {
     return (
@@ -86,43 +85,43 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
         <h2 className="text-xl font-bold mb-4">Schedule Visualization</h2>
         <p className="text-gray-500">No schedule data to display</p>
       </div>
-    );
+    )
   }
 
   // Get unique divisions
-  const divisions: string[] = ['all', ...Array.from(new Set(schedule.matches.map((match: Match) => match.division)))];
+  const divisions: string[] = ['all', ...Array.from(new Set(schedule.matches.map((match: Match) => match.division)))]
 
   // Get unique fields
-  const fields: string[] = Array.from(new Set(schedule.matches.map((match: Match) => match.field)));
+  const fields: string[] = Array.from(new Set(schedule.matches.map((match: Match) => match.field)))
 
   // Get all time slots
   const timeSlots: number[] = Array.from(new Set(schedule.matches.map((match: Match) => match.timeSlot))).sort(
     (a: number, b: number) => a - b
-  );
+  )
 
   // Filter matches by division if needed
   const filteredMatches: Match[] =
     selectedDivision === 'all'
       ? schedule.matches
-      : schedule.matches.filter((match: Match) => match.division === selectedDivision);
+      : schedule.matches.filter((match: Match) => match.division === selectedDivision)
 
   // Group matches by time or field based on view mode
-  const groupedMatches: GroupedMatches = {};
+  const groupedMatches: GroupedMatches = {}
 
   if (viewMode === 'by_time') {
     filteredMatches.forEach((match: Match) => {
       if (!groupedMatches[match.timeSlot]) {
-        groupedMatches[match.timeSlot] = [];
+        groupedMatches[match.timeSlot] = []
       }
-      groupedMatches[match.timeSlot].push(match);
-    });
+      groupedMatches[match.timeSlot].push(match)
+    })
   } else {
     filteredMatches.forEach((match: Match) => {
       if (!groupedMatches[match.field]) {
-        groupedMatches[match.field] = [];
+        groupedMatches[match.field] = []
       }
-      groupedMatches[match.field].push(match);
-    });
+      groupedMatches[match.field].push(match)
+    })
   }
 
   // Helper to check if a match has violations (legacy system)
@@ -135,8 +134,8 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
             (m.team1.name === match.team1.name && m.team2.name === match.team2.name) ||
             (m.team1.name === match.team2.name && m.team2.name === match.team1.name)
         )
-    );
-  };
+    )
+  }
 
   // Helper to get violation descriptions for a match (legacy system)
   const getViolationDescriptions = (match: Match): string[] => {
@@ -150,12 +149,12 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
               (m.team1.name === match.team2.name && m.team2.name === match.team1.name)
           )
       )
-      .map((v: RuleViolation) => v.description);
-  };
+      .map((v: RuleViolation) => v.description)
+  }
 
   const handleExportCSV = (): void => {
     // Create CSV content
-    const headers = ['Time Slot', 'Division', 'Field', 'Team 1', 'Team 2', 'Referee'];
+    const headers = ['Time Slot', 'Division', 'Field', 'Team 1', 'Team 2', 'Referee']
     const rows = schedule.matches.map((match: Match) => [
       match.timeSlot,
       match.division,
@@ -163,21 +162,21 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
       match.team1.name,
       match.team2.name,
       match.refereeTeam?.name || '',
-    ]);
+    ])
 
-    const csvContent = [headers.join(','), ...rows.map((row: (string | number)[]) => row.join(','))].join('\n');
+    const csvContent = [headers.join(','), ...rows.map((row: (string | number)[]) => row.join(','))].join('\n')
 
     // Create download link
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'optimized_schedule.csv');
-    link.style.display = 'none';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.setAttribute('href', url)
+    link.setAttribute('download', 'optimized_schedule.csv')
+    link.style.display = 'none'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
 
   return (
     <div className="p-4 bg-white rounded shadow">
@@ -268,8 +267,8 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
               <div className="bg-gray-100 p-2 font-bold">Time Slot {slot}</div>
               <div className="p-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {(groupedMatches[slot] || []).map((match: Match, idx: number) => {
-                  const scheduleViolations = getMatchViolations(match);
-                  const hasLegacyViolation = matchHasViolations(match);
+                  const scheduleViolations = getMatchViolations(match)
+                  const hasLegacyViolation = matchHasViolations(match)
                   return (
                     <div
                       key={idx}
@@ -320,7 +319,7 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
                         </div>
                       )}
                     </div>
-                  );
+                  )
                 })}
               </div>
             </div>
@@ -347,9 +346,9 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
                     {(groupedMatches[field] || [])
                       .sort((a: Match, b: Match) => a.timeSlot - b.timeSlot)
                       .map((match: Match, idx: number) => {
-                        const scheduleViolations = getMatchViolations(match);
-                        const hasLegacyViolation = false;
-                        const rowColor = getRowColor(scheduleViolations);
+                        const scheduleViolations = getMatchViolations(match)
+                        const hasLegacyViolation = false
+                        const rowColor = getRowColor(scheduleViolations)
                         return (
                           <tr
                             key={idx}
@@ -397,7 +396,7 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
                               )}
                             </td>
                           </tr>
-                        );
+                        )
                       })}
                   </tbody>
                 </table>
@@ -407,5 +406,5 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
         </div>
       )}
     </div>
-  );
+  )
 }

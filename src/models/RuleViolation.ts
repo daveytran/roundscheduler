@@ -1,15 +1,15 @@
-import { Match } from './Match';
+import { Match } from './Match'
 
 /**
  * Represents a rule violation found in the schedule
  */
 export interface RuleViolation {
   /** Name of the rule that was violated */
-  rule: string;
+  rule: string
   /** Human-readable description of the violation */
-  description: string;
+  description: string
   /** Array of matches involved in the violation (optional) */
-  matches?: Match[];
-  /** Severity level of the violation (optional) */
-  priority?: number;
+  matches?: Match[]
+  /** Whether the violation is critical */
+  level: 'warning' | 'critical'
 }

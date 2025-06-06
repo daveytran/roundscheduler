@@ -1,27 +1,26 @@
-import React, { useState, useEffect } from 'react';
-import { Schedule } from '../models/Schedule';
-import { Match } from '../models/Match';
-import { ScheduleRule } from '../models/ScheduleRule';
-import { optimizeSchedule } from '../lib/scheduler';
-import { OptimizerSettings } from '../lib/localStorage';
+import React, { useState, useEffect } from 'react'
+import { Schedule } from '../models/Schedule'
+import { Match } from '../models/Match'
+import { ScheduleRule } from '../models/ScheduleRule'
+import { OptimizerSettings } from '../lib/localStorage'
 
 // Type for the progress callback info
 interface OptimizationProgressInfo {
-  iteration: number;
-  progress: number;
-  currentScore: number;
-  bestScore: number;
-  temperature: number;
-  violations: any[];
+  iteration: number
+  progress: number
+  currentScore: number
+  bestScore: number
+  temperature: number
+  violations: any[]
 }
 
 // Props interface
 interface ScheduleOptimizerProps {
-  matches: Match[];
-  rules: ScheduleRule[];
-  initialSettings?: OptimizerSettings;
-  onSettingsChange?: (settings: OptimizerSettings) => void;
-  onOptimizationComplete?: (schedule: Schedule) => void;
+  matches: Match[]
+  rules: ScheduleRule[]
+  initialSettings?: OptimizerSettings
+  onSettingsChange?: (settings: OptimizerSettings) => void
+  onOptimizationComplete?: (schedule: Schedule) => void
 }
 
 export default function ScheduleOptimizer({
@@ -31,85 +30,82 @@ export default function ScheduleOptimizer({
   onSettingsChange,
   onOptimizationComplete,
 }: ScheduleOptimizerProps) {
-  const [isOptimizing, setIsOptimizing] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [iterations, setIterations] = useState(initialSettings?.iterations || 10000);
-  const [originalScore, setOriginalScore] = useState<number | null>(null);
-  const [currentScore, setCurrentScore] = useState<number | null>(null);
-  const [bestScore, setBestScore] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [isOptimizing, setIsOptimizing] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [iterations, setIterations] = useState(initialSettings?.iterations || 10000)
+  const [originalScore, setOriginalScore] = useState<number | null>(null)
+  const [currentScore, setCurrentScore] = useState<number | null>(null)
+  const [bestScore, setBestScore] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   // Update iterations when initialSettings change
   useEffect(() => {
     if (initialSettings) {
-      setIterations(initialSettings.iterations);
+      setIterations(initialSettings.iterations)
     }
-  }, [initialSettings]);
+  }, [initialSettings])
 
   // Save settings when iterations change
   useEffect(() => {
     if (onSettingsChange) {
-      onSettingsChange({ iterations });
+      onSettingsChange({ iterations })
     }
-  }, [iterations, onSettingsChange]);
+  }, [iterations, onSettingsChange])
 
   const handleStartOptimization = async () => {
     try {
-      setError(null);
-      setIsOptimizing(true);
-      setProgress(0);
-      setOriginalScore(null);
-      setCurrentScore(null);
-      setBestScore(null);
+      setError(null)
+      setIsOptimizing(true)
+      setProgress(0)
+      setOriginalScore(null)
+      setCurrentScore(null)
+      setBestScore(null)
 
       if (!matches || matches.length === 0) {
-        throw new Error('No matches to optimize');
+        throw new Error('No matches to optimize')
       }
 
       if (!rules || rules.length === 0) {
-        throw new Error('No rules configured for optimization');
+        throw new Error('No rules configured for optimization')
       }
 
       // Validate that rules have proper evaluate methods
-      const invalidRules = rules.filter(rule => !rule || typeof rule.evaluate !== 'function');
+      const invalidRules = rules.filter(rule => !rule || typeof rule.evaluate !== 'function')
       if (invalidRules.length > 0) {
-        throw new Error('Some rules are not properly initialized. Please visit the Rules tab first to configure them.');
+        throw new Error('Some rules are not properly initialized. Please visit the Rules tab first to configure them.')
       }
 
       // Create a new schedule with the provided matches and rules
-      const schedule = new Schedule(matches, rules);
+      const schedule = new Schedule(matches, rules)
 
       // Initial evaluation to get the original score
-      schedule.evaluate();
-      const originalScheduleScore = schedule.score;
-      setOriginalScore(originalScheduleScore);
-      setCurrentScore(originalScheduleScore);
-      setBestScore(originalScheduleScore);
+      schedule.evaluate()
+      const originalScheduleScore = schedule.score
+      setOriginalScore(originalScheduleScore)
+      setCurrentScore(originalScheduleScore)
+      setBestScore(originalScheduleScore)
 
       // Optimize the schedule
-      const optimized = await optimizeSchedule(schedule, {
-        iterations,
-        progressCallback: (info: OptimizationProgressInfo) => {
-          setProgress(info.progress);
-          setCurrentScore(info.currentScore);
-          setBestScore(info.bestScore);
-        },
-      });
+      const optimized = await schedule.optimize(iterations, info => {
+        setProgress(info.progress)
+        setCurrentScore(info.currentScore)
+        setBestScore(info.bestScore)
+      })
 
       // Final evaluation
-      optimized.evaluate();
+      optimized.evaluate()
 
       // Notify parent component
       if (onOptimizationComplete) {
-        onOptimizationComplete(optimized);
+        onOptimizationComplete(optimized)
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
-      setError(`Optimization error: ${errorMessage}`);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred'
+      setError(`Optimization error: ${errorMessage}`)
     } finally {
-      setIsOptimizing(false);
+      setIsOptimizing(false)
     }
-  };
+  }
 
   return (
     <div className="p-4 bg-white rounded shadow">
@@ -209,5 +205,5 @@ export default function ScheduleOptimizer({
         {error && <div className="p-2 mt-3 bg-red-100 border border-red-300 text-red-500 rounded">{error}</div>}
       </div>
     </div>
-  );
+  )
 }
