@@ -1,22 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import {
-  AvoidBackToBackGames,
-  AvoidFirstAndLastGame,
-  AvoidReffingBeforePlaying,
-  AvoidPlayerBackToBackGames,
-  EnsurePlayerRestTime,
-  LimitPlayerGameCount,
-  AvoidPlayerFirstAndLastGame,
-  LimitPlayerVenueTime,
-  BalancePlayerGameDistribution,
-  AvoidPlayerLargeGaps,
-  EnsurePlayerWarmupTime,
-  BalanceRefereeAssignments,
-  EnsureFairFieldDistribution,
-  CustomRule as CustomRuleClass,
-} from '../models/ScheduleRule';
+import { CustomRule as CustomRuleClass } from '../models/ScheduleRule';
 import { ScheduleHelpers } from '../lib/schedule-helpers';
 import { RuleConfigurationData } from '../lib/localStorage';
+import {
+  RULES_REGISTRY,
+  RuleDefinition,
+  getRuleDefinition,
+  getTeamRules,
+  getPlayerRules,
+  createRuleFromConfiguration,
+} from '../lib/rules-registry';
 import CodeEditor from './CodeEditor';
 
 interface RuleConfigurationProps {
@@ -34,18 +27,7 @@ interface BuiltinRule {
   category: 'team' | 'player';
   class: any;
   description: string;
-  parameters?: {
-    [key: string]: {
-      name: string;
-      type: 'number' | 'boolean' | 'select';
-      default: any;
-      min?: number;
-      max?: number;
-      step?: number;
-      options?: { value: any; label: string }[];
-      description: string;
-    };
-  };
+  parameters?: { [key: string]: any };
   configuredParams?: { [key: string]: any };
 }
 
@@ -62,281 +44,37 @@ interface CustomRuleConfig {
 
 type Rule = BuiltinRule | CustomRuleConfig;
 
-// Helper functions for mapping configurations to rules
-const getBuiltinRuleClass = (id: string) => {
-  const classMap: { [key: string]: any } = {
-    back_to_back: AvoidBackToBackGames,
-    first_last: AvoidFirstAndLastGame,
-    reffing_before: AvoidReffingBeforePlaying,
-    player_back_to_back: AvoidPlayerBackToBackGames,
-    player_rest_time: EnsurePlayerRestTime,
-    player_game_limit: LimitPlayerGameCount,
-    player_first_last: AvoidPlayerFirstAndLastGame,
-    limit_venue_time: LimitPlayerVenueTime,
-    balance_game_distribution: BalancePlayerGameDistribution,
-    avoid_large_gaps: AvoidPlayerLargeGaps,
-    warmup_time: EnsurePlayerWarmupTime,
-    balance_referee: BalanceRefereeAssignments,
-    fair_field_distribution: EnsureFairFieldDistribution,
-  };
-  return classMap[id];
-};
+// Convert RuleDefinition to BuiltinRule format
+const convertRuleDefinitionToBuiltinRule = (
+  ruleDef: RuleDefinition,
+  enabled: boolean,
+  priority: number,
+  configuredParams?: any
+): BuiltinRule => ({
+  id: ruleDef.id,
+  name: ruleDef.name,
+  enabled,
+  priority,
+  type: 'builtin',
+  category: ruleDef.category,
+  class: ruleDef.ruleClass,
+  description: ruleDef.description,
+  parameters: ruleDef.parameters,
+  configuredParams,
+});
 
-const getBuiltinRuleDescription = (id: string) => {
-  const descriptions: { [key: string]: string } = {
-    back_to_back:
-      'Prevents teams from playing in consecutive time slots, which could cause fatigue and scheduling conflicts.',
-    first_last:
-      "Ensures teams don't have to stay for the entire event duration by avoiding both the first and last games.",
-    reffing_before:
-      'Prevents teams from having to referee immediately before their own game, allowing proper warm-up time.',
-    player_back_to_back: 'Prevents individual players from playing in consecutive time slots to avoid fatigue.',
-    player_rest_time: 'Ensures players have adequate rest time between games (configurable minimum slots).',
-    player_game_limit: 'Limits the maximum number of games a player can be scheduled for in a single event.',
-    player_first_last: 'Prevents individual players from having to stay for the entire event duration.',
-    limit_venue_time: 'Limits the total time players need to be at the venue from their first to last game.',
-    balance_game_distribution: 'Ensures fair distribution of games among players within each division.',
-    avoid_large_gaps: 'Prevents players from having long waiting periods between their games.',
-    warmup_time: 'Ensures players have adequate warm-up time before their first game of the day.',
-    balance_referee: 'Distributes referee duties fairly among all teams to ensure equal responsibility.',
-    fair_field_distribution: 'Prevents teams from playing too many games on the same field, ensuring variety.',
-  };
-  return descriptions[id] || '';
-};
-
-const getBuiltinRuleParameters = (id: string) => {
-  const parameters: { [key: string]: any } = {
-    player_rest_time: {
-      minRestSlots: {
-        name: 'Minimum Rest Slots',
-        type: 'number',
-        default: 2,
-        min: 1,
-        max: 10,
-        step: 1,
-        description: 'Minimum number of time slots players must rest between games',
-      },
-    },
-    player_game_limit: {
-      maxGames: {
-        name: 'Maximum Games',
-        type: 'number',
-        default: 4,
-        min: 1,
-        max: 15,
-        step: 1,
-        description: 'Maximum number of games a player can play',
-      },
-    },
-    limit_venue_time: {
-      maxHours: {
-        name: 'Maximum Hours at Venue',
-        type: 'number',
-        default: 5,
-        min: 1,
-        max: 12,
-        step: 0.5,
-        description: 'Maximum hours a player should be at the venue',
-      },
-      minutesPerSlot: {
-        name: 'Minutes per Time Slot',
-        type: 'number',
-        default: 30,
-        min: 15,
-        max: 120,
-        step: 15,
-        description: 'Duration of each time slot in minutes',
-      },
-    },
-    balance_game_distribution: {
-      maxGameDifference: {
-        name: 'Max Game Difference',
-        type: 'number',
-        default: 1,
-        min: 0,
-        max: 5,
-        step: 1,
-        description: 'Maximum allowed difference in game count between players',
-      },
-    },
-    avoid_large_gaps: {
-      maxGapSlots: {
-        name: 'Maximum Gap (slots)',
-        type: 'number',
-        default: 6,
-        min: 2,
-        max: 20,
-        step: 1,
-        description: 'Maximum allowed gap between player games in time slots',
-      },
-    },
-    warmup_time: {
-      minWarmupSlots: {
-        name: 'Minimum Warm-up Slots',
-        type: 'number',
-        default: 1,
-        min: 0,
-        max: 5,
-        step: 1,
-        description: 'Minimum time slots before first game for warm-up',
-      },
-    },
-    balance_referee: {
-      maxRefereeDifference: {
-        name: 'Max Referee Difference',
-        type: 'number',
-        default: 1,
-        min: 0,
-        max: 3,
-        step: 1,
-        description: 'Maximum allowed difference in referee assignments between teams',
-      },
-    },
-  };
-  return parameters[id];
-};
-
-const getDefaultRules = (): Rule[] => [
-  // Team-based rules (higher priority)
-  {
-    id: 'back_to_back',
-    name: 'Avoid back-to-back games (Teams)',
-    enabled: true,
-    priority: 5,
-    type: 'builtin',
-    category: 'team',
-    class: AvoidBackToBackGames,
-    description: getBuiltinRuleDescription('back_to_back'),
-  },
-  {
-    id: 'first_last',
-    name: 'Avoid teams having first and last game',
-    enabled: true,
-    priority: 4,
-    type: 'builtin',
-    category: 'team',
-    class: AvoidFirstAndLastGame,
-    description: getBuiltinRuleDescription('first_last'),
-  },
-  {
-    id: 'reffing_before',
-    name: 'Avoid teams reffing before playing',
-    enabled: true,
-    priority: 4,
-    type: 'builtin',
-    category: 'team',
-    class: AvoidReffingBeforePlaying,
-    description: getBuiltinRuleDescription('reffing_before'),
-  },
-  {
-    id: 'balance_referee',
-    name: 'Balance referee assignments',
-    enabled: true,
-    priority: 3,
-    type: 'builtin',
-    category: 'team',
-    class: BalanceRefereeAssignments,
-    description: getBuiltinRuleDescription('balance_referee'),
-    parameters: getBuiltinRuleParameters('balance_referee'),
-  },
-  {
-    id: 'fair_field_distribution',
-    name: 'Ensure fair field distribution',
-    enabled: true,
-    priority: 2,
-    type: 'builtin',
-    category: 'team',
-    class: EnsureFairFieldDistribution,
-    description: getBuiltinRuleDescription('fair_field_distribution'),
-  },
-  // Player-based rules (lower priority)
-  {
-    id: 'player_back_to_back',
-    name: 'Avoid back-to-back games (Players)',
-    enabled: true,
-    priority: 2,
-    type: 'builtin',
-    category: 'player',
-    class: AvoidPlayerBackToBackGames,
-    description: getBuiltinRuleDescription('player_back_to_back'),
-  },
-  {
-    id: 'limit_venue_time',
-    name: 'Limit player venue time',
-    enabled: true,
-    priority: 2,
-    type: 'builtin',
-    category: 'player',
-    class: LimitPlayerVenueTime,
-    description: getBuiltinRuleDescription('limit_venue_time'),
-    parameters: getBuiltinRuleParameters('limit_venue_time'),
-  },
-  {
-    id: 'player_rest_time',
-    name: 'Ensure player rest time',
-    enabled: true,
-    priority: 1,
-    type: 'builtin',
-    category: 'player',
-    class: EnsurePlayerRestTime,
-    description: getBuiltinRuleDescription('player_rest_time'),
-    parameters: getBuiltinRuleParameters('player_rest_time'),
-  },
-  {
-    id: 'player_first_last',
-    name: 'Avoid players having first and last game',
-    enabled: true,
-    priority: 1,
-    type: 'builtin',
-    category: 'player',
-    class: AvoidPlayerFirstAndLastGame,
-    description: getBuiltinRuleDescription('player_first_last'),
-  },
-  {
-    id: 'avoid_large_gaps',
-    name: 'Avoid large gaps between player games',
-    enabled: true,
-    priority: 1,
-    type: 'builtin',
-    category: 'player',
-    class: AvoidPlayerLargeGaps,
-    description: getBuiltinRuleDescription('avoid_large_gaps'),
-    parameters: getBuiltinRuleParameters('avoid_large_gaps'),
-  },
-  {
-    id: 'player_game_limit',
-    name: 'Limit player game count',
-    enabled: false,
-    priority: 1,
-    type: 'builtin',
-    category: 'player',
-    class: LimitPlayerGameCount,
-    description: getBuiltinRuleDescription('player_game_limit'),
-    parameters: getBuiltinRuleParameters('player_game_limit'),
-  },
-  {
-    id: 'balance_game_distribution',
-    name: 'Balance player game distribution',
-    enabled: false,
-    priority: 1,
-    type: 'builtin',
-    category: 'player',
-    class: BalancePlayerGameDistribution,
-    description: getBuiltinRuleDescription('balance_game_distribution'),
-    parameters: getBuiltinRuleParameters('balance_game_distribution'),
-  },
-  {
-    id: 'warmup_time',
-    name: 'Ensure player warm-up time',
-    enabled: false,
-    priority: 1,
-    type: 'builtin',
-    category: 'player',
-    class: EnsurePlayerWarmupTime,
-    description: getBuiltinRuleDescription('warmup_time'),
-    parameters: getBuiltinRuleParameters('warmup_time'),
-  },
-];
+// Get default rules from registry
+const getDefaultRules = (): Rule[] =>
+  RULES_REGISTRY.map(ruleDef =>
+    convertRuleDefinitionToBuiltinRule(
+      ruleDef,
+      ruleDef.enabled,
+      ruleDef.priority,
+      ruleDef.parameters
+        ? Object.fromEntries(Object.entries(ruleDef.parameters).map(([key, param]) => [key, param.default]))
+        : undefined
+    )
+  );
 
 export default function RuleConfiguration({
   initialConfigurations,
@@ -371,11 +109,12 @@ export default function RuleConfiguration({
           };
 
           if (config.type === 'builtin') {
+            const ruleDef = getRuleDefinition(config.id);
             return {
               ...baseRule,
-              class: getBuiltinRuleClass(config.id),
-              description: getBuiltinRuleDescription(config.id),
-              parameters: getBuiltinRuleParameters(config.id),
+              class: ruleDef?.ruleClass,
+              description: ruleDef?.description || '',
+              parameters: ruleDef?.parameters,
               configuredParams: config.configuredParams,
             } as BuiltinRule;
           } else {
@@ -418,62 +157,21 @@ export default function RuleConfiguration({
   // Create rule instances and notify parent when configurations change
   useEffect(() => {
     if (onRulesChange) {
-      const enabledRules = rules
-        .filter(rule => rule.enabled)
-        .map(rule => {
-          try {
-            if (rule.type === 'builtin') {
-              if (!rule.class) {
-                console.error(`Built-in rule ${rule.name} has no class defined`);
-                return null;
-              }
+      // Convert rules to RuleConfigurationData format and use centralized creation
+      const configurations: RuleConfigurationData[] = rules.map(rule => ({
+        id: rule.id,
+        name: rule.name,
+        enabled: rule.enabled,
+        priority: rule.priority,
+        type: rule.type,
+        category: rule.category,
+        configuredParams: rule.type === 'builtin' ? rule.configuredParams : undefined,
+        code: rule.type === 'custom' ? rule.code : undefined,
+      }));
 
-              // Build constructor arguments based on parameters
-              const args = [rule.priority];
-              if (rule.parameters && rule.configuredParams) {
-                // Add configured parameter values in the order they appear in the parameters definition
-                Object.keys(rule.parameters).forEach(paramName => {
-                  const configuredValue = rule.configuredParams?.[paramName];
-                  const defaultValue = rule.parameters?.[paramName]?.default;
-                  args.push(configuredValue !== undefined ? configuredValue : defaultValue);
-                });
-              } else if (rule.parameters) {
-                // Add default values if no configured params
-                Object.values(rule.parameters).forEach(param => {
-                  args.push(param.default);
-                });
-              }
-
-              const ruleInstance = new rule.class(...args);
-              if (typeof ruleInstance.evaluate !== 'function') {
-                console.error(`Built-in rule ${rule.name} has no evaluate method`);
-                return null;
-              }
-              return ruleInstance;
-            } else if (rule.type === 'custom') {
-              try {
-                // Convert string function to actual function using eval
-                const cleanCode = rule.code.replace(/^function\s+evaluate\s*\([^)]*\)\s*{/, '').replace(/}$/, '');
-                const evaluateFunc = new Function(
-                  'schedule',
-                  'ScheduleHelpers',
-                  `const violations = [];\n${cleanCode}\nreturn violations;`
-                ) as (schedule: any, scheduleHelpers: any) => any[];
-
-                // Wrap the function to provide ScheduleHelpers
-                const wrappedFunc = (schedule: any) => evaluateFunc(schedule, ScheduleHelpers);
-                return new CustomRuleClass(rule.name, wrappedFunc, rule.priority);
-              } catch (err) {
-                console.error(`Error creating custom rule ${rule.name}: ${(err as Error).message}`);
-                return null;
-              }
-            }
-          } catch (err) {
-            console.error(`Error creating rule ${rule.name}: ${(err as Error).message}`);
-            return null;
-          }
-          return null;
-        })
+      const enabledRules = configurations
+        .filter(config => config.enabled)
+        .map(config => createRuleFromConfiguration(config))
         .filter(rule => rule !== null);
 
       onRulesChange(enabledRules);

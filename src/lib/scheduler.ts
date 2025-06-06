@@ -1,7 +1,12 @@
 import { Schedule } from '../models/Schedule';
 import { Match } from '../models/Match';
 import { RuleViolation } from '../models/RuleViolation';
-import { AvoidBackToBackGames, AvoidFirstAndLastGame, AvoidReffingBeforePlaying } from '../models/ScheduleRule';
+import {
+  AvoidBackToBackGames,
+  AvoidFirstAndLastGame,
+  AvoidReffingBeforePlaying,
+  AvoidPlayingAfterSetup,
+} from '../models/ScheduleRule';
 
 // Type for optimization progress callback
 interface OptimizationProgressInfo {
@@ -28,7 +33,8 @@ export function createSchedule(matches: Match[]): Schedule {
   const schedule = new Schedule(matches);
 
   // Add default rules with priorities
-  schedule.addRule(new AvoidBackToBackGames(5)); // Priority 5 (highest)
+  schedule.addRule(new AvoidPlayingAfterSetup(10)); // Priority 10 (critical - highest)
+  schedule.addRule(new AvoidBackToBackGames(5)); // Priority 5 (high)
   schedule.addRule(new AvoidReffingBeforePlaying(3)); // Priority 3 (medium)
   schedule.addRule(new AvoidFirstAndLastGame(1)); // Priority 1 (lowest)
 

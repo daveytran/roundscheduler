@@ -111,11 +111,6 @@ export default function ScheduleOptimizer({
     }
   };
 
-  const handleIterationsChange = (value: string) => {
-    const newIterations = Math.max(1000, Math.min(100000, parseInt(value) || 10000));
-    setIterations(newIterations);
-  };
-
   return (
     <div className="p-4 bg-white rounded shadow">
       <h2 className="text-xl font-bold mb-4">Schedule Optimizer</h2>
@@ -133,9 +128,8 @@ export default function ScheduleOptimizer({
             <input
               type="number"
               value={iterations}
-              onChange={e => handleIterationsChange(e.target.value)}
-              min="1000"
-              max="100000"
+              onChange={e => setIterations(parseInt(e.target.value))}
+              min="0"
               step="1000"
               className="w-32 p-2 border rounded"
               disabled={isOptimizing}

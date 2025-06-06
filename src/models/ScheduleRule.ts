@@ -22,45 +22,90 @@ export abstract class ScheduleRule {
 }
 
 /**
- * Rule to avoid back-to-back games for teams
+ * Rule to avoid consecutive games for teams (playing or refereeing)
+ * 3+ consecutive games = critical violation (priority 10)
+ * 2 consecutive games = warning violation (priority 5)
  */
 export class AvoidBackToBackGames extends ScheduleRule {
   name;
-  constructor(priority = 3) {
+  constructor(priority = 5) {
     super(priority);
-    this.name = 'Avoid back-to-back games';
+    this.name = 'Avoid back-to-back games (Teams)';
   }
 
   evaluate(schedule: Schedule, violations: RuleViolation[]) {
     const matches = [...schedule.matches].sort((a, b) => a.timeSlot - b.timeSlot);
 
-    for (let i = 1; i < matches.length; i++) {
-      const prevMatch = matches[i - 1];
-      const currMatch = matches[i];
+    // Track each team's consecutive games
+    const teamConsecutiveGames = new Map<string, number>();
 
-      // Check if the time slots are consecutive
-      if (currMatch.timeSlot === prevMatch.timeSlot + 1) {
-        // Check if any team plays in both matches and identify which team
-        const teams = [];
-        if (prevMatch.team1.name === currMatch.team1.name || prevMatch.team1.name === currMatch.team2.name) {
-          teams.push(prevMatch.team1.name);
-        }
-        if (prevMatch.team2.name === currMatch.team1.name || prevMatch.team2.name === currMatch.team2.name) {
-          teams.push(prevMatch.team2.name);
-        }
+    // Get all teams in the schedule
+    const allTeams = new Set<string>();
+    matches.forEach(match => {
+      allTeams.add(match.team1.name);
+      allTeams.add(match.team2.name);
+    });
 
-        // Create a violation for each team that has back-to-back games
-        teams.forEach(teamName => {
-          violations.push({
-            rule: this.name,
-            description: `Team ${teamName} plays back-to-back in time slots ${prevMatch.timeSlot} and ${currMatch.timeSlot}`,
-            matches: [prevMatch, currMatch],
-          });
-        });
+    // For each team, find consecutive game streaks
+    for (const teamName of Array.from(allTeams)) {
+      // Get all matches where this team is involved (playing or refereeing)
+      const teamMatches = matches
+        .filter(match => match.team1.name === teamName || match.team2.name === teamName)
+        .sort((a, b) => a.timeSlot - b.timeSlot);
+
+      if (teamMatches.length < 2) continue;
+
+      // Check for consecutive time slots
+      let consecutiveStart = 0;
+      for (let i = 1; i < teamMatches.length; i++) {
+        const prevMatch = teamMatches[i - 1];
+        const currMatch = teamMatches[i];
+
+        // If not consecutive, process the previous streak and start a new one
+        if (currMatch.timeSlot !== prevMatch.timeSlot + 1) {
+          const streakLength = i - consecutiveStart;
+          if (streakLength >= 2) {
+            this.addConsecutiveViolation(violations, teamName, streakLength, teamMatches.slice(consecutiveStart, i));
+          }
+          consecutiveStart = i;
+        }
+      }
+
+      // Check the final streak
+      const finalStreakLength = teamMatches.length - consecutiveStart;
+      if (finalStreakLength >= 2) {
+        this.addConsecutiveViolation(violations, teamName, finalStreakLength, teamMatches.slice(consecutiveStart));
       }
     }
 
     return violations;
+  }
+
+  private addConsecutiveViolation(
+    violations: RuleViolation[],
+    teamName: string,
+    streakLength: number,
+    matches: Match[]
+  ) {
+    const firstSlot = matches[0].timeSlot;
+    const lastSlot = matches[matches.length - 1].timeSlot;
+    const timeSlotRange = firstSlot === lastSlot ? `slot ${firstSlot}` : `slots ${firstSlot} and ${lastSlot}`;
+
+    if (streakLength >= 3) {
+      violations.push({
+        rule: this.name,
+        description: `${teamName}: ${streakLength} consecutive games in time ${timeSlotRange}`,
+        matches: matches,
+        priority: 10, // Critical violation
+      });
+    } else if (streakLength === 2) {
+      violations.push({
+        rule: this.name,
+        description: `${teamName}: 2 back-to-back games in time ${timeSlotRange}`,
+        matches: matches,
+        priority: 5, // Warning violation
+      });
+    }
   }
 }
 
@@ -149,14 +194,134 @@ export class AvoidReffingBeforePlaying extends ScheduleRule {
   }
 }
 
+/**
+ * Critical rule to prevent teams from playing immediately after setup
+ */
+export class AvoidPlayingAfterSetup extends ScheduleRule {
+  name;
+  constructor(priority = 10) {
+    // High priority for critical violation
+    super(priority);
+    this.name = 'Avoid playing immediately after setup';
+  }
+
+  evaluate(schedule: Schedule, violations: RuleViolation[]) {
+    const matches = [...schedule.matches].sort((a, b) => a.timeSlot - b.timeSlot);
+
+    for (let i = 0; i < matches.length - 1; i++) {
+      const currMatch = matches[i];
+      const nextMatch = matches[i + 1];
+
+      // Check if current match is a SETUP activity and next match is consecutive
+      if (currMatch.activityType === 'SETUP' && nextMatch.timeSlot === currMatch.timeSlot + 1) {
+        // Get all teams involved in setup - handle both Match instances and plain objects
+        let setupTeams;
+        if (typeof currMatch.getAllInvolvedTeams === 'function') {
+          setupTeams = currMatch.getAllInvolvedTeams();
+        } else {
+          // Fallback for plain objects: manually extract teams
+          setupTeams = [currMatch.team1, currMatch.team2];
+          if (currMatch.refereeTeam) {
+            setupTeams.push(currMatch.refereeTeam);
+          }
+          // Remove duplicates
+          setupTeams = setupTeams.filter((team, index, self) => self.findIndex(t => t.name === team.name) === index);
+        }
+
+        // Check if any setup team is playing in the next match
+        for (const setupTeam of setupTeams) {
+          if (nextMatch.team1.name === setupTeam.name || nextMatch.team2.name === setupTeam.name) {
+            violations.push({
+              rule: this.name,
+              description: `Team ${setupTeam.name} does setup in slot ${currMatch.timeSlot} and plays immediately after in slot ${nextMatch.timeSlot} - CRITICAL VIOLATION`,
+              matches: [currMatch, nextMatch],
+            });
+          }
+        }
+      }
+    }
+
+    return violations;
+  }
+}
+
+/**
+ * Critical rule to prevent teams from being double-booked in the same time slot
+ * This is a non-optional rule as it's physically impossible for a team to be in two places at once
+ */
+export class PreventTeamDoubleBooking extends ScheduleRule {
+  name;
+  constructor(priority = 10) {
+    // Maximum priority for critical violation
+    super(priority);
+    this.name = 'Prevent team double-booking';
+  }
+
+  evaluate(schedule: Schedule, violations: RuleViolation[]) {
+    const matches = [...schedule.matches];
+
+    // Group matches by time slot
+    const matchesBySlot = new Map<number, Match[]>();
+    matches.forEach(match => {
+      if (!matchesBySlot.has(match.timeSlot)) {
+        matchesBySlot.set(match.timeSlot, []);
+      }
+      matchesBySlot.get(match.timeSlot)!.push(match);
+    });
+
+    // Check each time slot for team conflicts
+    matchesBySlot.forEach((slotMatches, timeSlot) => {
+      if (slotMatches.length < 2) return; // Skip if only one match in slot
+
+      // Track all team assignments in this slot
+      const teamAssignments = new Map<string, Match[]>();
+
+      slotMatches.forEach(match => {
+        // Add playing teams
+        [match.team1.name, match.team2.name].forEach(teamName => {
+          if (!teamAssignments.has(teamName)) {
+            teamAssignments.set(teamName, []);
+          }
+          teamAssignments.get(teamName)!.push(match);
+        });
+
+        // Add referee team if present
+        if (match.refereeTeam) {
+          const refTeamName = match.refereeTeam.name;
+          if (!teamAssignments.has(refTeamName)) {
+            teamAssignments.set(refTeamName, []);
+          }
+          teamAssignments.get(refTeamName)!.push(match);
+        }
+      });
+
+      // Check for teams with multiple assignments
+      teamAssignments.forEach((assignedMatches, teamName) => {
+        if (assignedMatches.length > 1) {
+          violations.push({
+            rule: this.name,
+            description: `Team ${teamName} has ${assignedMatches.length} assignments in slot ${timeSlot} - CRITICAL VIOLATION`,
+            matches: assignedMatches,
+            priority: 10, // Critical violation
+          });
+        }
+      });
+    });
+
+    return violations;
+  }
+}
+
 // ===== PLAYER-BASED RULES (Lower Priority) =====
 
 /**
- * Rule to avoid individual players playing back-to-back games
+ * Rule to avoid individual players playing consecutive games
+ * 3+ consecutive games = critical violation (priority 10)
+ * 2 consecutive games = warning violation (priority 3)
  */
 export class AvoidPlayerBackToBackGames extends ScheduleRule {
   name;
-  constructor(priority = 2) {
+  constructor(priority = 3) {
     super(priority);
     this.name = 'Avoid players playing back-to-back games';
   }
@@ -165,27 +330,69 @@ export class AvoidPlayerBackToBackGames extends ScheduleRule {
     const matches = [...schedule.matches].sort((a, b) => a.timeSlot - b.timeSlot);
     const playerMatches = ScheduleHelpers.groupMatchesByPlayer(matches);
 
-    // Check each player's matches for back-to-back games
+    // Check each player's matches for consecutive games
     Object.entries(playerMatches).forEach(([playerName, playerMatchList]) => {
+      if (playerMatchList.length < 2) return;
+
       const sortedMatches = playerMatchList.sort((a, b) => a.timeSlot - b.timeSlot);
 
+      // Check for consecutive time slots - same logic as team detection
+      let consecutiveStart = 0;
       for (let i = 1; i < sortedMatches.length; i++) {
         const prevMatch = sortedMatches[i - 1];
         const currMatch = sortedMatches[i];
 
-        // Check if matches are consecutive
-        if (currMatch.timeSlot === prevMatch.timeSlot + 1) {
-          violations.push({
-            rule: this.name,
-            description: `Player ${playerName} plays back-to-back games in time slots ${prevMatch.timeSlot} and ${currMatch.timeSlot}`,
-            matches: [prevMatch, currMatch],
-            priority: this.priority,
-          });
+        // If not consecutive, process the previous streak and start a new one
+        if (currMatch.timeSlot !== prevMatch.timeSlot + 1) {
+          const streakLength = i - consecutiveStart;
+          if (streakLength >= 2) {
+            this.addPlayerConsecutiveViolation(
+              violations,
+              playerName,
+              streakLength,
+              sortedMatches.slice(consecutiveStart, i)
+            );
+          }
+          consecutiveStart = i;
         }
+      }
+
+      // Check the final streak
+      const finalStreakLength = sortedMatches.length - consecutiveStart;
+      if (finalStreakLength >= 2) {
+        this.addPlayerConsecutiveViolation(
+          violations,
+          playerName,
+          finalStreakLength,
+          sortedMatches.slice(consecutiveStart)
+        );
       }
     });
 
     return violations;
+  }
+
+  private addPlayerConsecutiveViolation(
+    violations: RuleViolation[],
+    playerName: string,
+    streakLength: number,
+    matches: Match[]
+  ) {
+    if (streakLength >= 3) {
+      violations.push({
+        rule: this.name,
+        description: `Player ${playerName}: ${streakLength} consecutive games`,
+        matches: matches,
+        priority: 10, // Critical violation
+      });
+    } else if (streakLength === 2) {
+      violations.push({
+        rule: this.name,
+        description: `Player ${playerName}: 2 back-to-back games`,
+        matches: matches,
+        priority: 3, // Warning violation
+      });
+    }
   }
 }
 
@@ -596,6 +803,62 @@ export class EnsureFairFieldDistribution extends ScheduleRule {
         });
       }
     });
+
+    return violations;
+  }
+}
+
+/**
+ * Rule to limit teams spending too much consecutive time at the same venue
+ * Checks if teams have 3+ games within 3 time slots at the same field
+ */
+export class LimitTeamVenueTime extends ScheduleRule {
+  name;
+  constructor(priority = 2) {
+    super(priority);
+    this.name = 'Limit team venue time';
+  }
+
+  evaluate(schedule: Schedule, violations: RuleViolation[]) {
+    const matches = [...schedule.matches].sort((a, b) => a.timeSlot - b.timeSlot);
+
+    // Get all unique fields
+    const fields = Array.from(new Set(matches.map(m => m.field)));
+
+    // Check each field
+    for (const field of fields) {
+      const venueMatches = matches.filter(m => m.field === field);
+
+      // Get all teams that play/ref at this venue
+      const teamsAtVenue = new Set<string>();
+      venueMatches.forEach(match => {
+        teamsAtVenue.add(match.team1.name);
+        teamsAtVenue.add(match.team2.name);
+        if (match.refereeTeam) {
+          teamsAtVenue.add(match.refereeTeam.name);
+        }
+      });
+
+      // Check each team's time at this venue
+      for (const teamName of Array.from(teamsAtVenue)) {
+        const teamVenueMatches = venueMatches
+          .filter(m => m.team1.name === teamName || m.team2.name === teamName || m.refereeTeam?.name === teamName)
+          .sort((a, b) => a.timeSlot - b.timeSlot);
+
+        if (teamVenueMatches.length >= 3) {
+          const timeSpan = teamVenueMatches[teamVenueMatches.length - 1].timeSlot - teamVenueMatches[0].timeSlot;
+          if (timeSpan <= 3) {
+            // If 3+ games within 3 time slots
+            violations.push({
+              rule: this.name,
+              description: `${teamName}: Extended time at ${field}`,
+              matches: teamVenueMatches,
+              priority: 3, // Warning violation
+            });
+          }
+        }
+      }
+    }
 
     return violations;
   }

@@ -117,19 +117,33 @@ export class Schedule {
   /**
    * Randomize the schedule while keeping divisions together
    * Games can be shuffled across blocks as long as the blocks are both for the same division
+   * SETUP and PACKING DOWN activities cannot be shuffled
    * Referees are also shuffled to optimize referee assignments
    * @returns {Schedule} New randomized schedule
    */
   randomize() {
     // Create deep copies of matches to avoid modifying the original
     const newMatches = this.matches.map(
-      match => new Match(match.team1, match.team2, match.timeSlot, match.field, match.division, match.refereeTeam)
+      match =>
+        new Match(
+          match.team1,
+          match.team2,
+          match.timeSlot,
+          match.field,
+          match.division,
+          match.refereeTeam,
+          match.activityType
+        )
     );
 
-    // Group by division
-    const divisionMatches = ScheduleHelpers.groupMatchesByDivision(newMatches);
+    // Separate regular matches from special activities
+    const specialActivities = newMatches.filter(match => match.isSpecialActivity());
+    const regularMatches = newMatches.filter(match => !match.isSpecialActivity());
 
-    // Randomize each division's matches and referee assignments
+    // Group regular matches by division
+    const divisionMatches = ScheduleHelpers.groupMatchesByDivision(regularMatches);
+
+    // Randomize each division's regular matches and referee assignments
     for (const division in divisionMatches) {
       const matches = divisionMatches[division];
 
@@ -151,8 +165,8 @@ export class Schedule {
       this.shuffleRefereeAssignments(matches);
     }
 
-    // Combine all matches back together
-    const randomizedMatches = [];
+    // Combine all regular matches back together and add special activities
+    const randomizedMatches = [...specialActivities]; // Special activities keep their original slots
     for (const division in divisionMatches) {
       randomizedMatches.push(...divisionMatches[division]);
     }

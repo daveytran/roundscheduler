@@ -62,18 +62,10 @@ export function importSchedule(csvString: string, teamsMap: TeamsMap): Match[] {
   const hasHeader = isScheduleHeaderRow(data[0]);
   let scheduleData = hasHeader ? data.slice(1) : data;
 
-  // Filter out empty rows and special rows (SETUP, PACKING DOWN)
+  // Filter out only completely empty rows - keep SETUP and PACKING DOWN rows
   scheduleData = scheduleData.filter((row: CSVRow) => {
     // Skip completely empty rows
-    if (row.every((cell: string | null) => !cell || cell.trim() === '')) return false;
-
-    // Check if this is a special row like SETUP or PACKING DOWN
-    const isSpecialRow = row.some(
-      (cell: string | null) =>
-        cell && typeof cell === 'string' && (cell.includes('SETUP') || cell.includes('PACKING DOWN'))
-    );
-
-    return !isSpecialRow;
+    return !row.every((cell: string | null) => !cell || cell.trim() === '');
   });
 
   return processScheduleFormat(scheduleData, teamsMap);
@@ -267,8 +259,25 @@ function processScheduleFormat(scheduleData: CSVRow[], teamsMap: TeamsMap): Matc
       }
     }
 
-    // Skip if essential data is missing
-    if (!team1 || !team2) continue;
+    // Detect special activities (SETUP, PACKING DOWN)
+    let activityType: 'SETUP' | 'PACKING_DOWN' | 'REGULAR' = 'REGULAR';
+
+    // Check if this is a SETUP or PACKING DOWN activity
+    const activityCheck = [team1, team2, refereeTeam, division].join(' ').toUpperCase();
+    if (activityCheck.includes('SETUP')) {
+      activityType = 'SETUP';
+    } else if (activityCheck.includes('PACKING DOWN') || activityCheck.includes('PACKING')) {
+      activityType = 'PACKING_DOWN';
+    }
+
+    // For special activities, allow empty team2 and use placeholder names
+    if (activityType !== 'REGULAR') {
+      if (!team1) team1 = 'ACTIVITY_PLACEHOLDER';
+      if (!team2) team2 = 'ACTIVITY_PLACEHOLDER';
+    } else {
+      // Skip if essential data is missing for regular matches
+      if (!team1 || !team2) continue;
+    }
 
     // Normalize division
     let normalizedDivision: Division = 'mixed'; // Default to mixed
@@ -323,7 +332,8 @@ function processScheduleFormat(scheduleData: CSVRow[], teamsMap: TeamsMap): Matc
       timeSlot,
       field,
       normalizedDivision,
-      refTeam
+      refTeam,
+      activityType
     );
 
     matches.push(match);

@@ -7,10 +7,11 @@ export interface MatchData {
   field: string;
   division: string;
   refereeTeam: string | null;
+  activityType?: 'SETUP' | 'PACKING_DOWN' | 'REGULAR';
 }
 
 /**
- * Match class represents a match between two teams
+ * Match class represents a match between two teams or a special activity
  */
 export class Match {
   team1: Team;
@@ -19,6 +20,7 @@ export class Match {
   field: string;
   division: Division;
   refereeTeam: Team | null; // Team assigned to referee this match
+  activityType: 'SETUP' | 'PACKING_DOWN' | 'REGULAR'; // Type of activity
 
   constructor(
     team1: Team,
@@ -26,7 +28,8 @@ export class Match {
     timeSlot: number,
     field: string,
     division: Division,
-    refereeTeam: Team | null = null
+    refereeTeam: Team | null = null,
+    activityType: 'SETUP' | 'PACKING_DOWN' | 'REGULAR' = 'REGULAR'
   ) {
     this.team1 = team1;
     this.team2 = team2;
@@ -34,6 +37,25 @@ export class Match {
     this.field = field;
     this.division = division;
     this.refereeTeam = refereeTeam;
+    this.activityType = activityType;
+  }
+
+  /**
+   * Check if this is a special activity (SETUP or PACKING DOWN)
+   */
+  isSpecialActivity(): boolean {
+    return this.activityType === 'SETUP' || this.activityType === 'PACKING_DOWN';
+  }
+
+  /**
+   * Get all teams involved in this match/activity (including referee)
+   */
+  getAllInvolvedTeams(): Team[] {
+    const teams = [this.team1, this.team2];
+    if (this.refereeTeam) {
+      teams.push(this.refereeTeam);
+    }
+    return teams.filter((team, index, self) => self.findIndex(t => t.name === team.name) === index);
   }
 
   /**
@@ -70,6 +92,7 @@ export class Match {
       field: this.field,
       division: this.division,
       refereeTeam: this.refereeTeam ? this.refereeTeam.name : null,
+      activityType: this.activityType,
     };
   }
 }

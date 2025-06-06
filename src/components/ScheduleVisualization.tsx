@@ -24,6 +24,7 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
   const [violations, setViolations] = useState<RuleViolation[]>([]);
   const [viewMode, setViewMode] = useState<'by_time' | 'by_field'>('by_time');
   const [selectedDivision, setSelectedDivision] = useState<string>('all');
+  const [isViolationsExpanded, setIsViolationsExpanded] = useState<boolean>(false);
 
   useEffect(() => {
     if (schedule) {
@@ -31,194 +32,32 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
     }
   }, [schedule]);
 
-  // Detect violations for a specific match (same logic as ImportSchedule)
-  const detectViolations = (match: Match, allMatches: Match[]): ViolationInfo[] => {
-    const violations: ViolationInfo[] = [];
-    const sortedMatches = [...allMatches].sort((a, b) => a.timeSlot - b.timeSlot);
-    const currentIndex = sortedMatches.findIndex(m => m === match);
+  // Get violations for a specific match using the rule system
+  const getMatchViolations = (match: Match): ViolationInfo[] => {
+    const matchViolations: ViolationInfo[] = [];
 
-    // Get all teams involved in this match (including referee)
-    const teamsInMatch = [match.team1.name, match.team2.name];
-    if (match.refereeTeam) {
-      teamsInMatch.push(match.refereeTeam.name);
-    }
-
-    // Check for consecutive games (TEAMS)
-    for (const teamName of teamsInMatch) {
-      let consecutiveCount = 0;
-      let currentStreak = 0;
-
-      // Count consecutive games around current match
-      for (let i = 0; i < sortedMatches.length; i++) {
-        const m = sortedMatches[i];
-        const isTeamInvolved =
-          m.team1.name === teamName || m.team2.name === teamName || m.refereeTeam?.name === teamName;
-
-        if (isTeamInvolved) {
-          currentStreak++;
-          if (i === currentIndex) {
-            consecutiveCount = currentStreak;
-          }
-        } else {
-          if (i < currentIndex) {
-            currentStreak = 0;
-          } else if (i > currentIndex) {
-            break;
-          }
-        }
-      }
-
-      // Also check backwards from current position
-      let backwardStreak = 0;
-      for (let i = currentIndex; i >= 0; i--) {
-        const m = sortedMatches[i];
-        const isTeamInvolved =
-          m.team1.name === teamName || m.team2.name === teamName || m.refereeTeam?.name === teamName;
-
-        if (isTeamInvolved) {
-          backwardStreak++;
-        } else {
-          break;
-        }
-      }
-
-      // Check forward from current position
-      let forwardStreak = 0;
-      for (let i = currentIndex; i < sortedMatches.length; i++) {
-        const m = sortedMatches[i];
-        const isTeamInvolved =
-          m.team1.name === teamName || m.team2.name === teamName || m.refereeTeam?.name === teamName;
-
-        if (isTeamInvolved) {
-          forwardStreak++;
-        } else {
-          break;
-        }
-      }
-
-      const totalConsecutive = Math.max(consecutiveCount, backwardStreak + forwardStreak - 1);
-
-      if (totalConsecutive >= 3) {
-        violations.push({
-          type: 'critical',
-          message: `${teamName}: ${totalConsecutive} consecutive games`,
-        });
-      } else if (totalConsecutive === 2) {
-        violations.push({
-          type: 'warning',
-          message: `${teamName}: 2 back-to-back games`,
+    // Check schedule violations that involve this match
+    schedule.violations?.forEach(violation => {
+      if (
+        violation.matches &&
+        violation.matches.some(
+          m =>
+            m.timeSlot === match.timeSlot &&
+            m.field === match.field &&
+            m.team1.name === match.team1.name &&
+            m.team2.name === match.team2.name
+        )
+      ) {
+        // Convert priority to severity type
+        const type = (violation.priority || 1) >= 10 ? 'critical' : 'warning';
+        matchViolations.push({
+          type,
+          message: violation.description,
         });
       }
-    }
+    });
 
-    // Check for consecutive games (PLAYERS) - Same color scheme as teams
-    const playersInMatch: string[] = [];
-    if (match.team1.players) {
-      playersInMatch.push(...match.team1.players.map(p => p.name));
-    }
-    if (match.team2.players) {
-      playersInMatch.push(...match.team2.players.map(p => p.name));
-    }
-
-    for (const playerName of playersInMatch) {
-      // Get all matches where this player is involved
-      const playerMatches = sortedMatches.filter(m => {
-        const team1Players = m.team1.players?.map(p => p.name) || [];
-        const team2Players = m.team2.players?.map(p => p.name) || [];
-        return team1Players.includes(playerName) || team2Players.includes(playerName);
-      });
-
-      if (playerMatches.length < 2) continue;
-
-      const playerMatchesSorted = playerMatches.sort((a, b) => a.timeSlot - b.timeSlot);
-      const currentPlayerIndex = playerMatchesSorted.findIndex(m => m === match);
-
-      if (currentPlayerIndex === -1) continue;
-
-      // Use the same logic as team detection - check for consecutive time slots
-      let consecutiveCount = 0;
-      let currentStreak = 0;
-
-      // Count consecutive games around current match
-      for (let i = 0; i < playerMatchesSorted.length; i++) {
-        const m = playerMatchesSorted[i];
-        const isConsecutive = i === 0 || m.timeSlot === playerMatchesSorted[i - 1].timeSlot + 1;
-
-        if (isConsecutive) {
-          currentStreak++;
-          if (i === currentPlayerIndex) {
-            consecutiveCount = currentStreak;
-          }
-        } else {
-          if (i < currentPlayerIndex) {
-            currentStreak = 1; // Reset streak but count current match
-          } else if (i > currentPlayerIndex) {
-            break;
-          }
-        }
-      }
-
-      // Also check backwards from current position
-      let backwardStreak = 0;
-      for (let i = currentPlayerIndex; i >= 0; i--) {
-        const m = playerMatchesSorted[i];
-        const prevMatch = i > 0 ? playerMatchesSorted[i - 1] : null;
-
-        if (!prevMatch || m.timeSlot === prevMatch.timeSlot + 1) {
-          backwardStreak++;
-        } else {
-          break;
-        }
-      }
-
-      // Check forward from current position
-      let forwardStreak = 0;
-      for (let i = currentPlayerIndex; i < playerMatchesSorted.length; i++) {
-        const m = playerMatchesSorted[i];
-        const nextMatch = i < playerMatchesSorted.length - 1 ? playerMatchesSorted[i + 1] : null;
-
-        if (!nextMatch || nextMatch.timeSlot === m.timeSlot + 1) {
-          forwardStreak++;
-        } else {
-          break;
-        }
-      }
-
-      const totalConsecutive = Math.max(consecutiveCount, backwardStreak + forwardStreak - 1);
-
-      if (totalConsecutive >= 3) {
-        violations.push({
-          type: 'critical',
-          message: `Player ${playerName}: ${totalConsecutive} consecutive games`,
-        });
-      } else if (totalConsecutive === 2) {
-        violations.push({
-          type: 'warning',
-          message: `Player ${playerName}: 2 back-to-back games`,
-        });
-      }
-    }
-
-    // Check venue time limits (if teams play too long at same venue)
-    const venueMatches = sortedMatches.filter(m => m.field === match.field);
-    for (const teamName of teamsInMatch) {
-      const teamVenueMatches = venueMatches.filter(
-        m => m.team1.name === teamName || m.team2.name === teamName || m.refereeTeam?.name === teamName
-      );
-
-      if (teamVenueMatches.length >= 3) {
-        const timeSpan = teamVenueMatches[teamVenueMatches.length - 1].timeSlot - teamVenueMatches[0].timeSlot;
-        if (timeSpan <= 3) {
-          // If 3+ games within 3 time slots
-          violations.push({
-            type: 'warning',
-            message: `${teamName}: Extended time at ${match.field}`,
-          });
-        }
-      }
-    }
-
-    return violations;
+    return matchViolations;
   };
 
   // Get row color based on violations
@@ -393,14 +232,32 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
 
       {schedule.score > 0 && (
         <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded">
-          <h3 className="font-bold text-amber-800 mb-2">Schedule Violations (Score: {schedule.score})</h3>
-          <ul className="list-disc pl-5 text-sm">
-            {violations.map((v: RuleViolation, i: number) => (
-              <li key={i} className="text-amber-700">
-                {v.rule}: {v.description}
-              </li>
-            ))}
-          </ul>
+          <button
+            onClick={() => setIsViolationsExpanded(!isViolationsExpanded)}
+            className="flex items-center justify-between w-full text-left hover:bg-amber-100 rounded p-1 -m-1"
+          >
+            <h3 className="font-bold text-amber-800">
+              Schedule Violations (Score: {schedule.score}) - {violations.length} violation
+              {violations.length !== 1 ? 's' : ''}
+            </h3>
+            <svg
+              className={`w-5 h-5 text-amber-800 transform transition-transform ${isViolationsExpanded ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {isViolationsExpanded && (
+            <ul className="list-disc pl-5 text-sm mt-2">
+              {violations.map((v: RuleViolation, i: number) => (
+                <li key={i} className="text-amber-700">
+                  {v.rule}: {v.description}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
@@ -411,7 +268,7 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
               <div className="bg-gray-100 p-2 font-bold">Time Slot {slot}</div>
               <div className="p-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {(groupedMatches[slot] || []).map((match: Match, idx: number) => {
-                  const scheduleViolations = detectViolations(match, schedule.matches);
+                  const scheduleViolations = getMatchViolations(match);
                   const hasLegacyViolation = matchHasViolations(match);
                   return (
                     <div
@@ -439,7 +296,7 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
                       {/* Show schedule violations */}
                       {scheduleViolations.length > 0 && (
                         <div className="mt-2 space-y-1">
-                          {scheduleViolations.map((violation, vIndex) => (
+                          {scheduleViolations.map((violation: ViolationInfo, vIndex: number) => (
                             <div
                               key={vIndex}
                               className={`text-xs px-2 py-1 rounded ${
@@ -490,8 +347,8 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
                     {(groupedMatches[field] || [])
                       .sort((a: Match, b: Match) => a.timeSlot - b.timeSlot)
                       .map((match: Match, idx: number) => {
-                        const scheduleViolations = detectViolations(match, schedule.matches);
-                        const hasLegacyViolation = matchHasViolations(match);
+                        const scheduleViolations = getMatchViolations(match);
+                        const hasLegacyViolation = false;
                         const rowColor = getRowColor(scheduleViolations);
                         return (
                           <tr
@@ -514,7 +371,7 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
                             <td className="p-2 border">
                               {scheduleViolations.length > 0 ? (
                                 <div className="space-y-1">
-                                  {scheduleViolations.map((violation, vIndex) => (
+                                  {scheduleViolations.map((violation: ViolationInfo, vIndex: number) => (
                                     <div
                                       key={vIndex}
                                       className={`text-xs px-2 py-1 rounded ${

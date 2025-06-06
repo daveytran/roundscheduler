@@ -19,203 +19,22 @@ import {
   RuleConfigurationData,
   OptimizerSettings,
 } from '../lib/localStorage';
+import { CustomRule } from '../models/ScheduleRule';
 import {
-  CustomRule,
-  AvoidBackToBackGames,
-  AvoidFirstAndLastGame,
-  AvoidReffingBeforePlaying,
-  AvoidPlayerBackToBackGames,
-  EnsurePlayerRestTime,
-  AvoidPlayerFirstAndLastGame,
-  LimitPlayerVenueTime,
-  AvoidPlayerLargeGaps,
-  BalanceRefereeAssignments,
-  EnsureFairFieldDistribution,
-  CustomRule as CustomRuleClass,
-} from '../models/ScheduleRule';
-import { ScheduleHelpers } from '../lib/schedule-helpers';
+  getDefaultRuleConfigurations,
+  createRuleFromConfiguration,
+  mergeRuleConfigurations,
+} from '../lib/rules-registry';
 
-// Default rule configurations that can be serialized
-const defaultRuleConfigurations: RuleConfigurationData[] = [
-  // Team-based rules (higher priority)
-  {
-    id: 'back_to_back',
-    name: 'Avoid back-to-back games (Teams)',
-    enabled: true,
-    priority: 5,
-    type: 'builtin',
-    category: 'team',
-  },
-  {
-    id: 'first_last',
-    name: 'Avoid teams having first and last game',
-    enabled: true,
-    priority: 4,
-    type: 'builtin',
-    category: 'team',
-  },
-  {
-    id: 'reffing_before',
-    name: 'Avoid teams reffing before playing',
-    enabled: true,
-    priority: 4,
-    type: 'builtin',
-    category: 'team',
-  },
-  {
-    id: 'balance_referee',
-    name: 'Balance referee assignments',
-    enabled: true,
-    priority: 3,
-    type: 'builtin',
-    category: 'team',
-    configuredParams: { maxRefereeDifference: 1 },
-  },
-  {
-    id: 'fair_field_distribution',
-    name: 'Ensure fair field distribution',
-    enabled: true,
-    priority: 2,
-    type: 'builtin',
-    category: 'team',
-  },
-  // Player-based rules (lower priority)
-  {
-    id: 'player_back_to_back',
-    name: 'Avoid back-to-back games (Players)',
-    enabled: true,
-    priority: 2,
-    type: 'builtin',
-    category: 'player',
-  },
-  {
-    id: 'limit_venue_time',
-    name: 'Limit player venue time',
-    enabled: true,
-    priority: 2,
-    type: 'builtin',
-    category: 'player',
-    configuredParams: { maxHours: 5, minutesPerSlot: 30 },
-  },
-  {
-    id: 'player_rest_time',
-    name: 'Ensure player rest time',
-    enabled: true,
-    priority: 1,
-    type: 'builtin',
-    category: 'player',
-    configuredParams: { minRestSlots: 2 },
-  },
-  {
-    id: 'player_first_last',
-    name: 'Avoid players having first and last game',
-    enabled: true,
-    priority: 1,
-    type: 'builtin',
-    category: 'player',
-  },
-  {
-    id: 'avoid_large_gaps',
-    name: 'Avoid large gaps between player games',
-    enabled: true,
-    priority: 1,
-    type: 'builtin',
-    category: 'player',
-    configuredParams: { maxGapSlots: 6 },
-  },
-];
+// Get default rule configurations from centralized registry
+const defaultRuleConfigurations = getDefaultRuleConfigurations();
 
 const defaultOptimizerSettings: OptimizerSettings = {
   iterations: 10000,
 };
 
-// Helper function to create rule instances from configurations
-const createRuleFromConfiguration = (config: RuleConfigurationData): any => {
-  if (!config.enabled) return null;
-
-  if (config.type === 'builtin') {
-    const args = [config.priority];
-
-    // Add configured parameter values
-    if (config.configuredParams) {
-      switch (config.id) {
-        case 'player_rest_time':
-          args.push(config.configuredParams.minRestSlots ?? 2);
-          break;
-        case 'limit_venue_time':
-          args.push(config.configuredParams.maxHours ?? 5);
-          args.push(config.configuredParams.minutesPerSlot ?? 30);
-          break;
-        case 'avoid_large_gaps':
-          args.push(config.configuredParams.maxGapSlots ?? 6);
-          break;
-        case 'balance_referee':
-          args.push(config.configuredParams.maxRefereeDifference ?? 1);
-          break;
-      }
-    }
-
-    // Create rule instance based on ID
-    switch (config.id) {
-      case 'back_to_back':
-        return new AvoidBackToBackGames(...args);
-      case 'first_last':
-        return new AvoidFirstAndLastGame(...args);
-      case 'reffing_before':
-        return new AvoidReffingBeforePlaying(...args);
-      case 'player_back_to_back':
-        return new AvoidPlayerBackToBackGames(...args);
-      case 'player_rest_time':
-        return new EnsurePlayerRestTime(...args);
-      case 'player_first_last':
-        return new AvoidPlayerFirstAndLastGame(...args);
-      case 'limit_venue_time':
-        return new LimitPlayerVenueTime(...args);
-      case 'avoid_large_gaps':
-        return new AvoidPlayerLargeGaps(...args);
-      case 'balance_referee':
-        return new BalanceRefereeAssignments(...args);
-      case 'fair_field_distribution':
-        return new EnsureFairFieldDistribution(...args);
-      default:
-        console.warn(`Unknown builtin rule: ${config.id}`);
-        return null;
-    }
-  } else if (config.type === 'custom' && config.code) {
-    try {
-      // Convert string function to actual function using eval
-      const cleanCode = config.code.replace(/^function\s+evaluate\s*\([^)]*\)\s*{/, '').replace(/}$/, '');
-      const evaluateFunc = new Function(
-        'schedule',
-        'ScheduleHelpers',
-        `const violations = [];\n${cleanCode}\nreturn violations;`
-      ) as (schedule: any, scheduleHelpers: any) => any[];
-
-      // Wrap the function to provide ScheduleHelpers
-      const wrappedFunc = (schedule: any) => evaluateFunc(schedule, ScheduleHelpers);
-      return new CustomRuleClass(config.name, wrappedFunc, config.priority);
-    } catch (err) {
-      console.error(`Error creating custom rule ${config.name}: ${(err as Error).message}`);
-      return null;
-    }
-  }
-
-  return null;
-};
-
-// Helper function to create default rule instances
-const createDefaultRules = () => [
-  new AvoidBackToBackGames(5),
-  new AvoidFirstAndLastGame(4),
-  new AvoidReffingBeforePlaying(4),
-  new AvoidPlayerBackToBackGames(2),
-  new EnsurePlayerRestTime(1, 2), // priority 1, minRestSlots 2
-  new AvoidPlayerFirstAndLastGame(1),
-  new LimitPlayerVenueTime(2, 5, 30), // priority 2, maxHours 5, minutesPerSlot 30
-  new AvoidPlayerLargeGaps(1, 6), // priority 1, maxGapSlots 6
-  new BalanceRefereeAssignments(3, 1), // priority 3, maxRefereeDifference 1
-  new EnsureFairFieldDistribution(2),
-];
+// Use the centralized rule creation function from the registry
+// (The createRuleFromConfiguration function is imported from rules-registry)
 
 export default function Home() {
   const [players, setPlayers] = useState<Player[]>([]);
@@ -247,10 +66,16 @@ export default function Home() {
         setMatches(savedData.matches || []);
         setFormattedMatches(savedData.formattedMatches || []);
 
-        // Load rule configurations and optimizer settings
+        // Load rule configurations and optimizer settings, merging with new defaults
         if (savedData.ruleConfigurations) {
-          setRuleConfigurations(savedData.ruleConfigurations);
+          // Merge existing configurations with new default rules
+          const mergedConfigurations = mergeRuleConfigurations(savedData.ruleConfigurations);
+          setRuleConfigurations(mergedConfigurations);
+        } else {
+          // Use default configurations if none exist
+          setRuleConfigurations(defaultRuleConfigurations);
         }
+
         if (savedData.optimizerSettings) {
           setOptimizerSettings(savedData.optimizerSettings);
         }
@@ -556,7 +381,7 @@ export default function Home() {
                 </p>
                 <div className="mt-2 flex items-center gap-2 text-xs text-blue-600">
                   <span>💾</span>
-                  <span>Data is automatically saved to your browser's local storage</span>
+                  <span>Data is automatically saved to your browser&apos;s local storage</span>
                 </div>
               </div>
 

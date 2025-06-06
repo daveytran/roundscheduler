@@ -30,7 +30,7 @@ export interface Player {
 }
 
 /**
- * Represents a match between two teams
+ * Represents a match between two teams or a special activity
  */
 export interface Match {
   /** First team in the match */
@@ -45,6 +45,8 @@ export interface Match {
   division: 'mixed' | 'gendered' | 'cloth';
   /** Team assigned to referee this match (null if no referee) */
   refereeTeam: Team | null;
+  /** Type of activity - SETUP, PACKING_DOWN, or REGULAR match */
+  activityType: 'SETUP' | 'PACKING_DOWN' | 'REGULAR';
 }
 
 /**

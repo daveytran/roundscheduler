@@ -60,6 +60,22 @@ describe('ScheduleRule Tests', () => {
       expect(violations.some(v => v.description.includes('Team A'))).toBe(true);
       expect(violations.some(v => v.description.includes('Team B'))).toBe(true);
     });
+
+    it('should NOT flag teams playing then reffing ', () => {
+      const rule = new AvoidBackToBackGames(3);
+      const matches = createMockMatches([
+        { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1' }, // Team A plays
+        { team1: 'Team C', team2: 'Team D', timeSlot: 2, field: 'Field 1', referee: 'Team A' }, // Then Team A refs
+        { team1: 'Team B', team2: 'Team G', timeSlot: 4, field: 'Field 1' }, // Then Team B plays
+      ]);
+      const schedule = new Schedule(matches, []);
+      const violations: RuleViolation[] = [];
+
+      rule.evaluate(schedule, violations);
+
+      // Should have no back-to-back violations because playing+reffing is allowed
+      expect(violations).toHaveLength(0);
+    });
   });
 
   describe('AvoidFirstAndLastGame', () => {
