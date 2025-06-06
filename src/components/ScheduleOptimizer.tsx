@@ -3,6 +3,7 @@ import { Schedule } from '../models/Schedule';
 import { Match } from '../models/Match';
 import { ScheduleRule } from '../models/ScheduleRule';
 import { OptimizerSettings } from '../lib/localStorage';
+import { OPTIMIZATION_STRATEGIES, OptimizationStrategyInfo } from '../models/OptimizationStrategy';
 import ScheduleVisualization from './ScheduleVisualization';
 
 // Type for the progress callback info
@@ -34,6 +35,7 @@ export default function ScheduleOptimizer({
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [iterations, setIterations] = useState(initialSettings?.iterations || 10000);
+  const [strategyId, setStrategyId] = useState(initialSettings?.strategyId || 'simulated-annealing');
   const [originalScore, setOriginalScore] = useState<number | null>(null);
   const [currentScore, setCurrentScore] = useState<number | null>(null);
   const [bestScore, setBestScore] = useState<number | null>(null);
@@ -42,19 +44,20 @@ export default function ScheduleOptimizer({
   const [showLiveVisualization, setShowLiveVisualization] = useState(true);
   const [lastUpdateIteration, setLastUpdateIteration] = useState<number>(0);
 
-  // Update iterations when initialSettings change
+  // Update settings when initialSettings change
   useEffect(() => {
     if (initialSettings) {
       setIterations(initialSettings.iterations);
+      setStrategyId(initialSettings.strategyId || 'simulated-annealing');
     }
   }, [initialSettings]);
 
-  // Save settings when iterations change
+  // Save settings when iterations or strategy change
   useEffect(() => {
     if (onSettingsChange) {
-      onSettingsChange({ iterations });
+      onSettingsChange({ iterations, strategyId });
     }
-  }, [iterations, onSettingsChange]);
+  }, [iterations, strategyId, onSettingsChange]);
 
   const handleStartOptimization = async () => {
     try {
@@ -81,11 +84,11 @@ export default function ScheduleOptimizer({
         throw new Error('Some rules are not properly initialized. Please visit the Rules tab first to configure them.');
       }
 
-      // Create a new schedule with the provided matches and rules
-      const schedule = new Schedule(matches, rules);
+      // Create a new schedule with the provided matches (no rules in constructor)
+      const schedule = new Schedule(matches);
 
       // Initial evaluation to get the original score
-      schedule.evaluate(); // Evaluate without verbose logging
+      schedule.evaluate(rules); // Pass rules to evaluate method
       const originalScheduleScore = schedule.score;
       
       console.log(`🚀 Starting optimization: ${matches.length} matches, ${rules.length} rules, score ${originalScheduleScore}`);
@@ -98,8 +101,11 @@ export default function ScheduleOptimizer({
       setRenderedSchedule(schedule.deepCopy());
       setLastUpdateIteration(0);
 
-      // Optimize the schedule
-      const optimized = await schedule.optimize(iterations, info => {
+      // Find the selected optimization strategy
+      const selectedStrategy = OPTIMIZATION_STRATEGIES.find(s => s.id === strategyId);
+
+      // Optimize the schedule (pass rules to optimize method)
+      const optimized = await schedule.optimize(rules, iterations, info => {
         setProgress(info.progress);
         setCurrentScore(info.currentScore);
         setBestScore(info.bestScore);
@@ -107,10 +113,10 @@ export default function ScheduleOptimizer({
         // Update schedules for live visualization - show best schedule found so far
         info.currentSchedule&& setRenderedSchedule(info.currentSchedule);
           setLastUpdateIteration(info.iteration);
-      });
+      }, selectedStrategy);
 
       // Final evaluation
-      optimized.evaluate();
+      optimized.evaluate(rules);
 
       // Clear live preview now that optimization is complete
       setRenderedSchedule(null);
@@ -133,12 +139,26 @@ export default function ScheduleOptimizer({
 
       <div className="mb-4">
         <p className="text-sm text-gray-600 mb-2">
-          The optimizer will attempt to minimize rule violations using simulated annealing. It shuffles match time slots
-          and referee assignments to find better arrangements. Higher iteration counts will produce better results but
-          take longer.
+          The optimizer will attempt to minimize rule violations using different strategies. Choose a strategy that best fits your needs and adjust iterations for better results.
         </p>
 
         <div className="flex items-center gap-4 mb-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Optimization Strategy</label>
+            <select
+              value={strategyId}
+              onChange={e => setStrategyId(e.target.value)}
+              className="w-48 p-2 border rounded"
+              disabled={isOptimizing}
+            >
+              {OPTIMIZATION_STRATEGIES.map(strategy => (
+                <option key={strategy.id} value={strategy.id}>
+                  {strategy.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Iterations</label>
             <input
@@ -160,6 +180,17 @@ export default function ScheduleOptimizer({
             {isOptimizing ? 'Optimizing...' : 'Start Optimization'}
           </button>
         </div>
+
+        {/* Strategy Description */}
+        {(() => {
+          const selectedStrategy = OPTIMIZATION_STRATEGIES.find(s => s.id === strategyId);
+          return selectedStrategy ? (
+            <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded">
+              <h4 className="font-medium text-blue-900 mb-1">{selectedStrategy.name}</h4>
+              <p className="text-sm text-blue-700">{selectedStrategy.description}</p>
+            </div>
+          ) : null;
+        })()}
 
         {isOptimizing && (
           <div className="mb-4">

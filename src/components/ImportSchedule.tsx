@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ReactSpreadsheetImport } from 'react-spreadsheet-import';
-import { parseCSV, importSchedule } from '../lib/importUtils';
+import { parseCSV, importSchedule, parsePastedScheduleData, ImportedScheduleRow } from '../lib/importUtils';
 import { Team, TeamsMap } from '../models/Team';
 import { Match } from '../models/Match';
 import { Schedule } from '../models/Schedule';
@@ -13,24 +13,7 @@ interface ImportScheduleProps {
   onImportComplete?: (matches: Match[]) => void;
 }
 
-interface ImportedScheduleRow {
-  timeSlot?: string;
-  time?: string;
-  round?: string;
-  division?: string;
-  field?: string;
-  court?: string;
-  pitch?: string;
-  team1?: string;
-  homeTeam?: string;
-  home?: string;
-  team2?: string;
-  awayTeam?: string;
-  away?: string;
-  referee?: string;
-  refereeTeam?: string;
-  teamReferee?: string;
-}
+
 
 export default function ImportSchedule({ teams, rules = [], onImportComplete }: ImportScheduleProps) {
   const [matches, setMatches] = useState<Match[]>([]);
@@ -50,101 +33,7 @@ export default function ImportSchedule({ teams, rules = [], onImportComplete }: 
     { label: 'Team Referee', key: 'teamReferee', fieldType: { type: 'input' }, optional: true },
   ] as const;
 
-  const parsePastedScheduleData = (text: string): ImportedScheduleRow[] => {
-    const lines = text.trim().split('\n');
-    if (lines.length < 2) return []; // Need at least header + 1 data row
 
-    const headers = lines[0].split(/[,\t]/).map(h => h.trim().toLowerCase());
-    const dataRows = lines.slice(1);
-
-    const parsedRows = dataRows
-      .map(line => {
-        const values = line.split(/[,\t]/).map(v => v.trim());
-        const row: ImportedScheduleRow = {};
-
-        headers.forEach((header, index) => {
-          const value = values[index] || '';
-          if (value) {
-            // Map common header variations to our expected fields
-            if (header.includes('time') || header.includes('slot')) {
-              row.timeSlot = value;
-            } else if (header.includes('round')) {
-              row.round = value;
-            } else if (header.includes('division')) {
-              row.division = value;
-            } else if (header.includes('field') || header.includes('court') || header.includes('pitch')) {
-              row.field = value;
-            } else if (header.includes('home') && header.includes('team')) {
-              row.homeTeam = value;
-            } else if (header.includes('away') && header.includes('team')) {
-              row.awayTeam = value;
-            } else if (
-              header.includes('team1') ||
-              (header.includes('team') &&
-                !header.includes('referee') &&
-                !header.includes('home') &&
-                !header.includes('away'))
-            ) {
-              row.team1 = value;
-            } else if (header.includes('team2')) {
-              row.team2 = value;
-            } else if (header.includes('referee') || header.includes('ref')) {
-              if (header.includes('team')) {
-                row.teamReferee = value;
-              } else {
-                row.referee = value;
-              }
-            }
-          }
-        });
-
-        // Set team1/team2 from homeTeam/awayTeam if not already set
-        if (!row.team1 && row.homeTeam) row.team1 = row.homeTeam;
-        if (!row.team2 && row.awayTeam) row.team2 = row.awayTeam;
-        if (!row.referee && row.teamReferee) row.referee = row.teamReferee;
-
-        return row;
-      });
-
-    // Process rows to mark all rows after packdown as packdown activities
-    let packdownStarted = false;
-    const processedRows = parsedRows.map(row => {
-      // Check if this row is a packdown activity
-      const isPackdownRow =
-        row.round?.toLowerCase().includes('packing') ||
-        row.team1?.toLowerCase().includes('packing');
-      
-      if (isPackdownRow) {
-        packdownStarted = true;
-      }
-
-      // If packdown has started, treat all subsequent rows as packdown
-      if (packdownStarted && !isPackdownRow) {
-        // Convert this row to a packdown activity
-        if (!row.round?.toLowerCase().includes('packing')) {
-          row.round = row.round ? `${row.round} - PACKING DOWN` : 'PACKING DOWN';
-        }
-        if (!row.team1?.toLowerCase().includes('packing')) {
-          row.team1 = row.team1 ? `${row.team1} - PACKING DOWN` : 'PACKING DOWN';
-        }
-      }
-
-      return row;
-    });
-
-    return processedRows.filter(row => {
-      // Keep setup/packing rows and regular matches with both teams
-      const isSpecialRow =
-        row.round?.toLowerCase().includes('setup') ||
-        row.round?.toLowerCase().includes('packing') ||
-        row.team1?.toLowerCase().includes('setup') ||
-        row.team1?.toLowerCase().includes('packing');
-      
-      // For special activities, we only need one team identifier
-      // For regular matches, we need both teams
-      return isSpecialRow || (row.team1 && row.team2);
-    });
-  };
 
   const handlePastedScheduleImport = () => {
     if (!pastedData.trim()) {
@@ -222,8 +111,8 @@ export default function ImportSchedule({ teams, rules = [], onImportComplete }: 
       setMatches(importedMatches);
       
       // Create Schedule object for visualization with rules
-      const newSchedule = new Schedule(importedMatches, rules);
-      newSchedule.evaluate(); // Calculate violations using the provided rules
+      const newSchedule = new Schedule(importedMatches);
+      newSchedule.evaluate(rules); // Calculate violations using the provided rules
       setSchedule(newSchedule);
       
       setShowResults(true);

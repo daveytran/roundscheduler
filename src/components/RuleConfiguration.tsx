@@ -42,7 +42,21 @@ interface CustomRuleConfig {
   description?: string;
 }
 
-type Rule = BuiltinRule | CustomRuleConfig;
+interface DuplicatedRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  type: 'duplicated';
+  category: 'team' | 'player';
+  class: any;
+  description: string;
+  parameters?: { [key: string]: any };
+  configuredParams?: { [key: string]: any };
+  baseRuleId: string; // ID of the original built-in rule
+}
+
+type Rule = BuiltinRule | CustomRuleConfig | DuplicatedRule;
 
 // Convert RuleDefinition to BuiltinRule format
 const convertRuleDefinitionToBuiltinRule = (
@@ -117,6 +131,16 @@ export default function RuleConfiguration({
               parameters: ruleDef?.parameters,
               configuredParams: config.configuredParams,
             } as BuiltinRule;
+          } else if (config.type === 'duplicated') {
+            const ruleDef = getRuleDefinition(config.baseRuleId!);
+            return {
+              ...baseRule,
+              class: ruleDef?.ruleClass,
+              description: ruleDef?.description || '',
+              parameters: ruleDef?.parameters,
+              configuredParams: config.configuredParams,
+              baseRuleId: config.baseRuleId!,
+            } as DuplicatedRule;
           } else {
             return {
               ...baseRule,
@@ -145,8 +169,9 @@ export default function RuleConfiguration({
       priority: rule.priority,
       type: rule.type,
       category: rule.category,
-      configuredParams: rule.type === 'builtin' ? rule.configuredParams : undefined,
+      configuredParams: rule.type === 'builtin' || rule.type === 'duplicated' ? rule.configuredParams : undefined,
       code: rule.type === 'custom' ? rule.code : undefined,
+      baseRuleId: rule.type === 'duplicated' ? rule.baseRuleId : undefined,
     }));
 
     if (onConfigurationsChange) {
@@ -165,8 +190,9 @@ export default function RuleConfiguration({
         priority: rule.priority,
         type: rule.type,
         category: rule.category,
-        configuredParams: rule.type === 'builtin' ? rule.configuredParams : undefined,
+        configuredParams: rule.type === 'builtin' || rule.type === 'duplicated' ? rule.configuredParams : undefined,
         code: rule.type === 'custom' ? rule.code : undefined,
+        baseRuleId: rule.type === 'duplicated' ? rule.baseRuleId : undefined,
       }));
 
       const enabledRules = configurations
@@ -181,7 +207,7 @@ export default function RuleConfiguration({
   const handleParameterChange = (ruleId: string, paramName: string, value: any) => {
     setRules(
       rules.map(rule => {
-        if (rule.id === ruleId && rule.type === 'builtin') {
+        if (rule.id === ruleId && (rule.type === 'builtin' || rule.type === 'duplicated')) {
           return {
             ...rule,
             configuredParams: {
@@ -251,6 +277,24 @@ export default function RuleConfiguration({
 
   const handleRemoveRule = (id: string) => {
     setRules(rules.filter(rule => rule.id !== id));
+  };
+
+  const handleDuplicateRule = (rule: BuiltinRule) => {
+    const duplicatedRule: DuplicatedRule = {
+      id: `duplicate_${rule.id}_${Date.now()}`,
+      name: `${rule.name} (Copy)`,
+      enabled: true,
+      priority: rule.priority,
+      type: 'duplicated',
+      category: rule.category,
+      class: rule.class,
+      description: rule.description,
+      parameters: rule.parameters,
+      configuredParams: { ...rule.configuredParams }, // Copy current parameter values
+      baseRuleId: rule.id,
+    };
+
+    setRules([...rules, duplicatedRule]);
   };
 
   const handleEditRule = (rule: CustomRuleConfig) => {
@@ -330,7 +374,7 @@ export default function RuleConfiguration({
     return category === 'team' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700';
   };
 
-  const renderParameterControl = (rule: BuiltinRule, paramName: string, param: any) => {
+  const renderParameterControl = (rule: BuiltinRule | DuplicatedRule, paramName: string, param: any) => {
     const value = rule.configuredParams?.[paramName] ?? param.default;
 
     switch (param.type) {
@@ -405,6 +449,9 @@ export default function RuleConfiguration({
                     {rule.type === 'builtin' && (
                       <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">Built-in</span>
                     )}
+                    {rule.type === 'duplicated' && (
+                      <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs">Duplicated</span>
+                    )}
                     {rule.type === 'custom' && (
                       <span className={`px-2 py-1 rounded text-xs ${getCategoryColor(rule.category)}`}>
                         Custom {rule.category}
@@ -414,7 +461,7 @@ export default function RuleConfiguration({
                   {rule.description && <p className="text-sm text-gray-600 mb-2">{rule.description}</p>}
 
                   {/* Parameter Controls */}
-                  {rule.type === 'builtin' && rule.parameters && Object.keys(rule.parameters).length > 0 && (
+                  {(rule.type === 'builtin' || rule.type === 'duplicated') && rule.parameters && Object.keys(rule.parameters).length > 0 && (
                     <div className="flex flex-wrap gap-3 mt-2">
                       {Object.entries(rule.parameters).map(([paramName, param]) => (
                         <div key={paramName}>{renderParameterControl(rule, paramName, param)}</div>
@@ -435,8 +482,17 @@ export default function RuleConfiguration({
                   className="w-16 p-1 border rounded text-center"
                 />
 
-                {rule.type === 'custom' && (
-                  <div className="flex gap-1">
+                <div className="flex gap-1">
+                  {rule.type === 'builtin' && (
+                    <button
+                      onClick={() => handleDuplicateRule(rule)}
+                      className="px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm"
+                      title="Create a copy with custom priority/parameters"
+                    >
+                      Duplicate
+                    </button>
+                  )}
+                  {rule.type === 'custom' && (
                     <button
                       onClick={() => handleEditRule(rule)}
                       className="px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm"
@@ -444,14 +500,16 @@ export default function RuleConfiguration({
                     >
                       {editingRule?.originalId === rule.id ? 'Editing...' : 'Edit'}
                     </button>
+                  )}
+                  {(rule.type === 'custom' || rule.type === 'duplicated') && (
                     <button
                       onClick={() => handleRemoveRule(rule.id)}
                       className="px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm"
                     >
                       Remove
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -499,6 +557,9 @@ export default function RuleConfiguration({
             <p>
               <strong>🎯 Smart Defaults:</strong> All parameters come with sensible defaults based on common scheduling
               needs.
+            </p>
+            <p>
+              <strong>📋 Rule Duplication:</strong> Duplicate built-in rules to create multiple versions with different priorities and parameters.
             </p>
           </div>
         </div>

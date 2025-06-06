@@ -18,7 +18,7 @@ describe('ScheduleRule Tests', () => {
     it('should detect back-to-back games for teams', () => {
       const rule = new AvoidBackToBackGames(3);
       const matches = testScenarios.backToBackGames();
-      const schedule = new Schedule(matches, []);
+      const schedule = new Schedule(matches);
       const violations: RuleViolation[] = [];
 
       rule.evaluate(schedule, violations);
@@ -35,7 +35,7 @@ describe('ScheduleRule Tests', () => {
         { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1' },
         { team1: 'Team A', team2: 'Team C', timeSlot: 3, field: 'Field 1' }, // Gap between 1 and 3
       ]);
-      const schedule = new Schedule(matches, []);
+      const schedule = new Schedule(matches);
       const violations: RuleViolation[] = [];
 
       rule.evaluate(schedule, violations);
@@ -51,7 +51,7 @@ describe('ScheduleRule Tests', () => {
         { team1: 'Team B', team2: 'Team D', timeSlot: 2, field: 'Field 2' },
         { team1: 'Team B', team2: 'Team E', timeSlot: 3, field: 'Field 1' }, // Team B back-to-back
       ]);
-      const schedule = new Schedule(matches, []);
+      const schedule = new Schedule(matches);
       const violations: RuleViolation[] = [];
 
       rule.evaluate(schedule, violations);
@@ -68,7 +68,7 @@ describe('ScheduleRule Tests', () => {
         { team1: 'Team C', team2: 'Team D', timeSlot: 2, field: 'Field 1', referee: 'Team A' }, // Then Team A refs
         { team1: 'Team B', team2: 'Team G', timeSlot: 4, field: 'Field 1' }, // Then Team B plays
       ]);
-      const schedule = new Schedule(matches, []);
+      const schedule = new Schedule(matches);
       const violations: RuleViolation[] = [];
 
       rule.evaluate(schedule, violations);
@@ -86,14 +86,14 @@ describe('ScheduleRule Tests', () => {
         { team1: 'Team C', team2: 'Team D', timeSlot: 2, field: 'Field 1', division: 'mixed' },
         { team1: 'Team A', team2: 'Team E', timeSlot: 3, field: 'Field 1', division: 'mixed' }, // Team A first and last
       ]);
-      const schedule = new Schedule(matches, []);
+      const schedule = new Schedule(matches);
       const violations: RuleViolation[] = [];
 
       rule.evaluate(schedule, violations);
 
       expect(violations).toHaveLength(1);
       expect(violations[0].description).toContain('Team A');
-      expect(violations[0].description).toContain('first and last game');
+      expect(violations[0].description).toContain('first period (setup + first game) and last period (last game + packdown) of the day');
     });
 
     it('should not flag teams when they only have first OR last game', () => {
@@ -103,7 +103,7 @@ describe('ScheduleRule Tests', () => {
         { team1: 'Team C', team2: 'Team D', timeSlot: 2, field: 'Field 1', division: 'mixed' },
         { team1: 'Team C', team2: 'Team E', timeSlot: 3, field: 'Field 1', division: 'mixed' }, // Team C last
       ]);
-      const schedule = new Schedule(matches, []);
+      const schedule = new Schedule(matches);
       const violations: RuleViolation[] = [];
 
       rule.evaluate(schedule, violations);
@@ -119,7 +119,7 @@ describe('ScheduleRule Tests', () => {
         { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1', referee: 'Team C' },
         { team1: 'Team C', team2: 'Team D', timeSlot: 2, field: 'Field 1' }, // Team C refs then plays
       ]);
-      const schedule = new Schedule(matches, []);
+      const schedule = new Schedule(matches);
       const violations: RuleViolation[] = [];
 
       rule.evaluate(schedule, violations);
@@ -135,7 +135,7 @@ describe('ScheduleRule Tests', () => {
         { team1: 'Team C', team2: 'Team D', timeSlot: 1, field: 'Field 1' }, // Team C plays first
         { team1: 'Team A', team2: 'Team B', timeSlot: 2, field: 'Field 1', referee: 'Team C' }, // Then refs
       ]);
-      const schedule = new Schedule(matches, []);
+      const schedule = new Schedule(matches);
       const violations: RuleViolation[] = [];
 
       rule.evaluate(schedule, violations);
@@ -151,7 +151,7 @@ describe('ScheduleRule Tests', () => {
         { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1' },
         { team1: 'Team A', team2: 'Team C', timeSlot: 2, field: 'Field 1' }, // Team A players back-to-back
       ]);
-      const schedule = new Schedule(matches, []);
+      const schedule = new Schedule(matches);
       const violations: RuleViolation[] = [];
 
       rule.evaluate(schedule, violations);
@@ -169,7 +169,7 @@ describe('ScheduleRule Tests', () => {
         { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1' },
         { team1: 'Team A', team2: 'Team C', timeSlot: 3, field: 'Field 1' }, // Only 1 slot rest (insufficient)
       ]);
-      const schedule = new Schedule(matches, []);
+      const schedule = new Schedule(matches);
       const violations: RuleViolation[] = [];
 
       rule.evaluate(schedule, violations);
@@ -184,7 +184,7 @@ describe('ScheduleRule Tests', () => {
         { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1' },
         { team1: 'Team A', team2: 'Team C', timeSlot: 4, field: 'Field 1' }, // 2 slots rest (adequate)
       ]);
-      const schedule = new Schedule(matches, []);
+      const schedule = new Schedule(matches);
       const violations: RuleViolation[] = [];
 
       rule.evaluate(schedule, violations);
@@ -202,7 +202,7 @@ describe('ScheduleRule Tests', () => {
         { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1' }, // Start at slot 1
         { team1: 'Team A', team2: 'Team C', timeSlot: 6, field: 'Field 1' }, // End at slot 6 = 5 slots = 2.5 hours
       ]);
-      const schedule = new Schedule(matches, []);
+      const schedule = new Schedule(matches);
       const violations: RuleViolation[] = [];
 
       rule.evaluate(schedule, violations);
@@ -219,7 +219,7 @@ describe('ScheduleRule Tests', () => {
         { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1' },
         { team1: 'Team A', team2: 'Team C', timeSlot: 6, field: 'Field 1' }, // 4 slot gap (too large)
       ]);
-      const schedule = new Schedule(matches, []);
+      const schedule = new Schedule(matches);
       const violations: RuleViolation[] = [];
 
       rule.evaluate(schedule, violations);
@@ -237,7 +237,7 @@ describe('ScheduleRule Tests', () => {
         { team1: 'Team A', team2: 'Team C', timeSlot: 2, field: 'Field 1' },
         { team1: 'Team A', team2: 'Team D', timeSlot: 3, field: 'Field 1' }, // Team A plays 3/3 games on Field 1
       ]);
-      const schedule = new Schedule(matches, []);
+      const schedule = new Schedule(matches);
       const violations: RuleViolation[] = [];
 
       rule.evaluate(schedule, violations);
@@ -258,9 +258,10 @@ describe('ScheduleRule Tests', () => {
       expect(lowPriorityRule.priority).toBe(1);
 
       const matches = testScenarios.backToBackGames();
-      const schedule = new Schedule(matches, [highPriorityRule, lowPriorityRule]);
+      const schedule = new Schedule(matches);
+      const rules = [highPriorityRule, lowPriorityRule];
 
-      const score = schedule.evaluate();
+      const score = schedule.evaluate(rules);
 
       // Should have violations and score should reflect priorities
       expect(schedule.violations.length).toBeGreaterThan(0);
@@ -273,9 +274,9 @@ describe('ScheduleRule Tests', () => {
       const rules = [new AvoidBackToBackGames(3), new AvoidFirstAndLastGame(2), new AvoidReffingBeforePlaying(4)];
 
       const matches = testScenarios.complexViolations();
-      const schedule = new Schedule(matches, rules);
+      const schedule = new Schedule(matches);
 
-      const score = schedule.evaluate();
+      const score = schedule.evaluate(rules);
 
       expect(schedule.violations.length).toBeGreaterThan(0);
       expect(score).toBeGreaterThan(0);
@@ -289,9 +290,9 @@ describe('ScheduleRule Tests', () => {
       const rules = [new AvoidBackToBackGames(3), new AvoidFirstAndLastGame(2), new AvoidReffingBeforePlaying(4)];
 
       const matches = testScenarios.validSchedule();
-      const schedule = new Schedule(matches, rules);
+      const schedule = new Schedule(matches);
 
-      const score = schedule.evaluate();
+      const score = schedule.evaluate(rules);
 
       expect(schedule.violations).toHaveLength(0);
       expect(score).toBe(0);

@@ -14,8 +14,8 @@ describe('UI Update Fix Test', () => {
       { team1: 'Team F', team2: 'Team G', timeSlot: 4, field: 'Field 1' },
     ]);
 
-    const schedule = new Schedule(matches, rules);
-    const originalScore = schedule.evaluate();
+    const schedule = new Schedule(matches);
+    const originalScore = schedule.evaluate(rules);
     
     console.log('\n=== UI UPDATE FIX TEST ===');
     console.log('Original score:', originalScore);
@@ -32,7 +32,7 @@ describe('UI Update Fix Test', () => {
     let lastBestScore = originalScore;
 
     // Run optimization and track ALL UI updates
-    const optimized = await schedule.optimize(200, (info) => {
+    const optimized = await schedule.optimize(rules, 200, (info) => {
       if (info.bestScheduleSnapshot) {
         const wasImprovement = info.bestScore < lastBestScore;
         
@@ -52,7 +52,7 @@ describe('UI Update Fix Test', () => {
       }
     });
 
-    const finalScore = optimized.evaluate();
+    const finalScore = optimized.evaluate(rules);
     console.log('Final score:', finalScore);
     console.log('Total UI updates received:', uiUpdates.length);
 

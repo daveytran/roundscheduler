@@ -89,7 +89,8 @@ export const ScheduleHelpers = {
    * @returns Array of matches involving this team
    */
   getTeamMatches(schedule: Schedule, teamName: string): Match[] {
-    return schedule.matches.filter(match => match.team1.name === teamName || match.team2.name === teamName);
+    const matches = schedule.matches ?? [];
+    return matches.filter(match => match.team1.name === teamName || match.team2.name === teamName);
   },
 
   /**
@@ -99,7 +100,8 @@ export const ScheduleHelpers = {
    * @returns Array of matches involving this player
    */
   getPlayerMatches(schedule: Schedule, playerName: string): Match[] {
-    return schedule.matches.filter(match => {
+    const matches = schedule.matches ?? [];
+    return matches.filter(match => {
       const allPlayers = [...match.team1.players, ...match.team2.players];
       return allPlayers.some(player => player.name === playerName);
     });
@@ -127,7 +129,7 @@ export const ScheduleHelpers = {
     rule: string,
     description: string,
     matches?: Match[],
-    level: 'warning' | 'critical' = 'warning'
+    level: 'note' | 'warning' | 'alert' | 'critical' = 'warning'
   ): RuleViolation {
     return {
       rule,
@@ -168,8 +170,9 @@ export const ScheduleHelpers = {
     matchesPerDivision: Record<string, number>;
     playersPerTeam: Record<string, number>;
   } {
+    const matches = schedule.matches ?? [];
     const stats = {
-      totalMatches: schedule.matches.length,
+      totalMatches: matches.length,
       totalPlayers: 0,
       matchesPerTimeSlot: {} as Record<number, number>,
       matchesPerField: {} as Record<string, number>,
@@ -179,7 +182,7 @@ export const ScheduleHelpers = {
 
     const uniquePlayers = new Set<string>();
 
-    schedule.matches.forEach(match => {
+    matches.forEach(match => {
       // Count time slots
       stats.matchesPerTimeSlot[match.timeSlot] = (stats.matchesPerTimeSlot[match.timeSlot] || 0) + 1;
 

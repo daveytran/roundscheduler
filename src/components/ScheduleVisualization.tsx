@@ -16,7 +16,7 @@ interface GroupedMatchesByTime {
 }
 
 interface ViolationInfo {
-  type: 'critical' | 'warning'
+  type: 'note' | 'warning' | 'alert' | 'critical'
   message: string
 }
 
@@ -25,6 +25,7 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
   const [viewMode, setViewMode] = useState<'by_time' | 'by_field'>('by_time')
   const [selectedDivision, setSelectedDivision] = useState<string>('all')
   const [showSpecialActivities, setShowSpecialActivities] = useState<boolean>(true)
+  const [showNotes, setShowNotes] = useState<boolean>(false)
   const [isViolationsExpanded, setIsViolationsExpanded] = useState<boolean>(false)
 
   useEffect(() => {
@@ -49,7 +50,11 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
             m.team2.name === match.team2.name
         )
       ) {
-        
+        // Filter out notes if they shouldn't be shown
+        if (violation.level === 'note' && !showNotes) {
+          return
+        }
+
         matchViolations.push({
           type: violation.level,
           message: violation.description,
@@ -64,8 +69,12 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
   const getRowColor = (violations: ViolationInfo[]): string => {
     if (violations.some(v => v.type === 'critical')) {
       return 'bg-red-100 border-red-300'
+    } else if (violations.some(v => v.type === 'alert')) {
+      return 'bg-red-100 border-red-300'
     } else if (violations.some(v => v.type === 'warning')) {
       return 'bg-yellow-100 border-yellow-300'
+    } else if (violations.some(v => v.type === 'note')) {
+      return 'bg-blue-100 border-blue-300'
     }
     return ''
   }
@@ -78,12 +87,16 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
     } else if (match.activityType === 'PACKING_DOWN') {
       return 'border-purple-300 bg-purple-50'
     }
-    
+
     // Regular violation-based coloring for regular matches
     if (violations.some(v => v.type === 'critical')) {
       return 'border-red-300 bg-red-50'
+    } else if (violations.some(v => v.type === 'alert')) {
+      return 'border-red-300 bg-red-50'
     } else if (violations.some(v => v.type === 'warning')) {
       return 'border-yellow-300 bg-yellow-50'
+    } else if (violations.some(v => v.type === 'note')) {
+      return 'border-blue-300 bg-blue-50'
     }
     return 'border-gray-200'
   }
@@ -118,8 +131,8 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
 
   // Filter by special activities
   if (!showSpecialActivities) {
-    filteredMatches = filteredMatches.filter((match: Match) => 
-      match.activityType !== 'SETUP' && match.activityType !== 'PACKING_DOWN'
+    filteredMatches = filteredMatches.filter(
+      (match: Match) => match.activityType !== 'SETUP' && match.activityType !== 'PACKING_DOWN'
     )
   }
 
@@ -180,7 +193,7 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
       match.field,
       match.team1.name !== 'ACTIVITY_PLACEHOLDER' ? match.team1.name : '',
       match.team2.name !== 'ACTIVITY_PLACEHOLDER' ? match.team2.name : '',
-      match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? '' : (match.refereeTeam?.name || ''),
+      match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? '' : match.refereeTeam?.name || '',
     ])
 
     const csvContent = [headers.join(','), ...rows.map((row: (string | number)[]) => row.join(','))].join('\n')
@@ -225,6 +238,16 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
             Show Setup/Pack Down
           </label>
 
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={showNotes}
+              onChange={e => setShowNotes(e.target.checked)}
+              className="rounded"
+            />
+            Show Notes
+          </label>
+
           <div className="flex border rounded overflow-hidden">
             <button
               onClick={() => setViewMode('by_time')}
@@ -258,12 +281,22 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
         </div>
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 bg-red-100 border border-red-300 rounded"></div>
-          <span>Critical (3+ consecutive games for teams/players)</span>
+          <span>🔴 Critical (disqualifies schedule)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 bg-red-100 border border-red-300 rounded"></div>
+          <span>🚨 Alert (serious but won&apos;t disqualify)</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 bg-yellow-100 border border-yellow-300 rounded"></div>
-          <span>Warning (2 consecutive games for teams/players, venue limits)</span>
+          <span>⚠️ Warning (standard violations)</span>
         </div>
+        {showNotes && (
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-blue-100 border border-blue-300 rounded"></div>
+            <span>ℹ️ Note (minor suggestions)</span>
+          </div>
+        )}
       </div>
 
       {schedule.score > 0 && (
@@ -305,47 +338,42 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
               <div className="p-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {(groupedMatches[slot] || []).map((match: Match, idx: number) => {
                   const scheduleViolations = getMatchViolations(match)
-                  const hasLegacyViolation = matchHasViolations(match)
                   return (
                     <div
                       key={idx}
-                      className={`p-3 border rounded ${getCardColor(scheduleViolations, match)} ${hasLegacyViolation && scheduleViolations.length === 0 ? 'border-red-300 bg-red-50' : ''}`}
+                      className={`p-3 border rounded ${getCardColor(scheduleViolations, match)} ${scheduleViolations.length > 0 ? 'border-red-300 bg-red-50' : ''}`}
                     >
                       <div className="font-bold mb-1">{match.field}</div>
-                      
+
                       {/* Special rendering for setup/pack down activities */}
                       {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? (
                         <div>
                           <div className="text-center mb-2">
-                            <span className={`inline-block px-3 py-1 rounded-full text-sm font-bold ${
-                              match.activityType === 'SETUP' 
-                                ? 'bg-blue-200 text-blue-800' 
-                                : 'bg-purple-200 text-purple-800'
-                            }`}>
+                            <span
+                              className={`inline-block px-3 py-1 rounded-full text-sm font-bold ${
+                                match.activityType === 'SETUP'
+                                  ? 'bg-blue-200 text-blue-800'
+                                  : 'bg-purple-200 text-purple-800'
+                              }`}
+                            >
                               {match.activityType === 'SETUP' ? '🔧 SETUP' : '📦 PACKING DOWN'}
                             </span>
                           </div>
                           <div className="text-sm text-gray-600 text-center">
-                            {match.team1.name !== 'ACTIVITY_PLACEHOLDER' && match.team2.name !== 'ACTIVITY_PLACEHOLDER' ? (
-                              `Teams: ${match.team1.name}, ${match.team2.name}`
-                            ) : (
-                              'All teams participate'
-                            )}
+                            {match.team1.name !== 'ACTIVITY_PLACEHOLDER' && match.team2.name !== 'ACTIVITY_PLACEHOLDER'
+                              ? `Teams: ${match.team1.name}, ${match.team2.name}`
+                              : 'All teams participate'}
                           </div>
                         </div>
                       ) : (
                         /* Regular match rendering */
                         <div>
                           <div className="flex justify-between items-center mb-1">
-                            <span
-                              className={`${scheduleViolations.length > 0 || hasLegacyViolation ? 'text-red-600 font-semibold' : ''}`}
-                            >
+                            <span className={`${scheduleViolations.length > 0 ? 'text-red-600 font-semibold' : ''}`}>
                               {match.team1.name}
                             </span>
                             <span>vs</span>
-                            <span
-                              className={`${scheduleViolations.length > 0 || hasLegacyViolation ? 'text-red-600 font-semibold' : ''}`}
-                            >
+                            <span className={`${scheduleViolations.length > 0 ? 'text-red-600 font-semibold' : ''}`}>
                               {match.team2.name}
                             </span>
                           </div>
@@ -364,20 +392,15 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
                               className={`text-xs px-2 py-1 rounded ${
                                 violation.type === 'critical'
                                   ? 'bg-red-200 text-red-800'
-                                  : 'bg-yellow-200 text-yellow-800'
+                                  : violation.type === 'alert'
+                                    ? 'bg-red-200 text-red-800'
+                                    : violation.type === 'warning'
+                                      ? 'bg-yellow-200 text-yellow-800'
+                                      : 'bg-blue-200 text-blue-800'
                               }`}
                             >
                               {violation.message}
                             </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Show legacy violations */}
-                      {hasLegacyViolation && scheduleViolations.length === 0 && (
-                        <div className="mt-2 text-xs text-red-500">
-                          {getViolationDescriptions(match).map((desc: string, i: number) => (
-                            <div key={i}>⚠️ {desc}</div>
                           ))}
                         </div>
                       )}
@@ -420,11 +443,13 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
                             <td className="p-2 border">{match.timeSlot}</td>
                             <td className="p-2 border">
                               {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? (
-                                <span className={`inline-block px-2 py-1 rounded text-xs font-bold ${
-                                  match.activityType === 'SETUP' 
-                                    ? 'bg-blue-200 text-blue-800' 
-                                    : 'bg-purple-200 text-purple-800'
-                                }`}>
+                                <span
+                                  className={`inline-block px-2 py-1 rounded text-xs font-bold ${
+                                    match.activityType === 'SETUP'
+                                      ? 'bg-blue-200 text-blue-800'
+                                      : 'bg-purple-200 text-purple-800'
+                                  }`}
+                                >
                                   {match.activityType === 'SETUP' ? 'SETUP' : 'PACK DOWN'}
                                 </span>
                               ) : (
@@ -434,27 +459,25 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
                             <td
                               className={`p-2 border ${scheduleViolations.length > 0 || hasLegacyViolation ? 'text-red-600 font-semibold' : ''}`}
                             >
-                              {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? (
-                                match.team1.name !== 'ACTIVITY_PLACEHOLDER' ? match.team1.name : '-'
-                              ) : (
-                                match.team1.name
-                              )}
+                              {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN'
+                                ? match.team1.name !== 'ACTIVITY_PLACEHOLDER'
+                                  ? match.team1.name
+                                  : '-'
+                                : match.team1.name}
                             </td>
                             <td
                               className={`p-2 border ${scheduleViolations.length > 0 || hasLegacyViolation ? 'text-red-600 font-semibold' : ''}`}
                             >
-                              {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? (
-                                match.team2.name !== 'ACTIVITY_PLACEHOLDER' ? match.team2.name : '-'
-                              ) : (
-                                match.team2.name
-                              )}
+                              {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN'
+                                ? match.team2.name !== 'ACTIVITY_PLACEHOLDER'
+                                  ? match.team2.name
+                                  : '-'
+                                : match.team2.name}
                             </td>
                             <td className="p-2 border">
-                              {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? (
-                                '-'
-                              ) : (
-                                match.refereeTeam?.name || '-'
-                              )}
+                              {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN'
+                                ? '-'
+                                : match.refereeTeam?.name || '-'}
                             </td>
                             <td className="p-2 border">
                               {scheduleViolations.length > 0 ? (
@@ -465,7 +488,11 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
                                       className={`text-xs px-2 py-1 rounded ${
                                         violation.type === 'critical'
                                           ? 'bg-red-200 text-red-800'
-                                          : 'bg-yellow-200 text-yellow-800'
+                                          : violation.type === 'alert'
+                                            ? 'bg-red-200 text-red-800'
+                                            : violation.type === 'warning'
+                                              ? 'bg-yellow-200 text-yellow-800'
+                                              : 'bg-blue-200 text-blue-800'
                                       }`}
                                     >
                                       {violation.message}

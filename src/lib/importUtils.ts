@@ -6,6 +6,26 @@ import { Match } from '../models/Match'
 // Type for CSV row data
 type CSVRow = (string | null)[]
 
+// Interface for parsed schedule row data
+export interface ImportedScheduleRow {
+  timeSlot?: string;
+  time?: string;
+  round?: string;
+  division?: string;
+  field?: string;
+  court?: string;
+  pitch?: string;
+  team1?: string;
+  homeTeam?: string;
+  home?: string;
+  team2?: string;
+  awayTeam?: string;
+  away?: string;
+  referee?: string;
+  refereeTeam?: string;
+  teamReferee?: string;
+}
+
 /**
  * Parse CSV data from string
  * @param {string} csvString - CSV data as string
@@ -608,4 +628,122 @@ function isPlayerTeamTableHeader(row: CSVRow): boolean {
 
   // Require at least 2 exact header matches
   return exactHeaderCount >= 2
+}
+
+/**
+ * Parse pasted schedule data with enhanced packdown handling
+ * This function processes raw text data (CSV/TSV) and ensures that:
+ * 1. All slots after packdown are marked as packdown activities
+ * 2. All packdown activities are grouped into the same time slot as the first packdown
+ * @param {string} text - Raw schedule data as string
+ * @returns {Array} Array of ImportedScheduleRow objects
+ */
+export function parsePastedScheduleData(text: string): ImportedScheduleRow[] {
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) return []; // Need at least header + 1 data row
+
+  const headers = lines[0].split(/[,\t]/).map(h => h.trim().toLowerCase());
+  const dataRows = lines.slice(1);
+
+  const parsedRows = dataRows
+    .map(line => {
+      const values = line.split(/[,\t]/).map(v => v.trim());
+      const row: ImportedScheduleRow = {};
+
+      headers.forEach((header, index) => {
+        const value = values[index] || '';
+        if (value) {
+          // Map common header variations to our expected fields
+          if (header.includes('time') || header.includes('slot')) {
+            row.timeSlot = value;
+          } else if (header.includes('round')) {
+            row.round = value;
+          } else if (header.includes('division')) {
+            row.division = value;
+          } else if (header.includes('field') || header.includes('court') || header.includes('pitch')) {
+            row.field = value;
+          } else if (header.includes('home') && header.includes('team')) {
+            row.homeTeam = value;
+          } else if (header.includes('away') && header.includes('team')) {
+            row.awayTeam = value;
+          } else if (header === 'team1' || (header.includes('team1'))) {
+            row.team1 = value;
+          } else if (header === 'team2' || (header.includes('team2'))) {
+            row.team2 = value;
+          } else if (header.includes('referee') || header.includes('ref')) {
+            if (header.includes('team')) {
+              row.teamReferee = value;
+            } else {
+              row.referee = value;
+            }
+          }
+        }
+      });
+
+      // Set team1/team2 from homeTeam/awayTeam if not already set
+      if (!row.team1 && row.homeTeam) row.team1 = row.homeTeam;
+      if (!row.team2 && row.awayTeam) row.team2 = row.awayTeam;
+      if (!row.referee && row.teamReferee) row.referee = row.teamReferee;
+
+      return row;
+    });
+
+  // Process rows to mark all rows after packdown as packdown activities
+  // and group them into the same time slot as the first packdown
+  let packdownStarted = false;
+  let firstPackdownTimeSlot: string | undefined;
+  
+  const processedRows = parsedRows.map(row => {
+    // Check if this row is a packdown activity
+    const isPackdownRow =
+      row.round?.toLowerCase().includes('packing') ||
+      row.team1?.toLowerCase().includes('packing');
+    
+    if (isPackdownRow) {
+      packdownStarted = true;
+      // Remember the time slot of the first packdown activity
+      if (!firstPackdownTimeSlot) {
+        firstPackdownTimeSlot = row.timeSlot || row.time;
+      }
+    }
+
+    // If packdown has started, treat all subsequent rows as packdown
+    if (packdownStarted && !isPackdownRow) {
+      // Convert this row to a packdown activity
+      if (!row.round?.toLowerCase().includes('packing')) {
+        row.round = row.round ? `${row.round} - PACKING DOWN` : 'PACKING DOWN';
+      }
+      if (!row.team1?.toLowerCase().includes('packing')) {
+        row.team1 = row.team1 ? `${row.team1} - PACKING DOWN` : 'PACKING DOWN';
+      }
+    }
+
+    // Group all packdown activities into the same time slot
+    if (packdownStarted && firstPackdownTimeSlot) {
+      // Set the time slot to match the first packdown activity
+      if (row.timeSlot) {
+        row.timeSlot = firstPackdownTimeSlot;
+      } else if (row.time) {
+        row.time = firstPackdownTimeSlot;
+      } else {
+        // If no time field exists, add one
+        row.timeSlot = firstPackdownTimeSlot;
+      }
+    }
+
+    return row;
+  });
+
+  return processedRows.filter(row => {
+    // Keep setup/packing rows and regular matches with both teams
+    const isSpecialRow =
+      row.round?.toLowerCase().includes('setup') ||
+      row.round?.toLowerCase().includes('packing') ||
+      row.team1?.toLowerCase().includes('setup') ||
+      row.team1?.toLowerCase().includes('packing');
+    
+    // For special activities, we only need one team identifier
+    // For regular matches, we need both teams
+    return isSpecialRow || (row.team1 && row.team2);
+  });
 }

@@ -10,6 +10,6 @@ export interface RuleViolation {
   description: string
   /** Array of matches involved in the violation (optional) */
   matches?: Match[]
-  /** Whether the violation is critical */
-  level: 'warning' | 'critical'
+  /** Severity level of the violation */
+  level: 'note' | 'warning' | 'alert' | 'critical'
 }

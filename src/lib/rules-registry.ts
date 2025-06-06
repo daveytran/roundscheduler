@@ -337,10 +337,12 @@ export function getPlayerRules(): RuleDefinition[] {
 export function createRuleFromConfiguration(config: RuleConfigurationData): ScheduleRule | null {
   if (!config.enabled) return null;
 
-  if (config.type === 'builtin') {
-    const ruleDef = getRuleDefinition(config.id);
+  if (config.type === 'builtin' || config.type === 'duplicated') {
+    // For duplicated rules, use the baseRuleId to find the original rule definition
+    const ruleId = config.type === 'duplicated' ? config.baseRuleId : config.id;
+    const ruleDef = getRuleDefinition(ruleId!);
     if (!ruleDef) {
-      console.warn(`Unknown builtin rule: ${config.id}`);
+      console.warn(`Unknown builtin rule: ${ruleId}`);
       return null;
     }
 

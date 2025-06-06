@@ -32,6 +32,7 @@ const defaultRuleConfigurations = getDefaultRuleConfigurations();
 
 const defaultOptimizerSettings: OptimizerSettings = {
   iterations: 10000,
+  strategyId: 'simulated-annealing',
 };
 
 // Use the centralized rule creation function from the registry

@@ -219,8 +219,8 @@ describe('Violation Detection Integration Tests', () => {
       const matches = importSchedule(complexScheduleCSV, mockTeams);
       const rules = [new AvoidBackToBackGames(3), new AvoidFirstAndLastGame(2), new AvoidReffingBeforePlaying(4)];
 
-      const schedule = new Schedule(matches, rules);
-      const score = schedule.evaluate();
+      const schedule = new Schedule(matches);
+      const score = schedule.evaluate(rules);
 
       expect(schedule.violations.length).toBeGreaterThan(0);
       expect(score).toBeGreaterThan(0);

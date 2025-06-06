@@ -61,7 +61,7 @@ describe('Optimization Debug Tests', () => {
         { team1: 'Team B', team2: 'Team D', timeSlot: 4, field: 'Field 1', referee: 'Team H' },
       ]);
 
-      const original = new Schedule(matches, []);
+      const original = new Schedule(matches);
       const originalFingerprint = createScheduleFingerprint(original);
       
       console.log('Original schedule fingerprint:', originalFingerprint);
@@ -108,7 +108,7 @@ describe('Optimization Debug Tests', () => {
         ),
       ];
 
-      const original = new Schedule(matches, []);
+      const original = new Schedule(matches);
       const randomized = original.randomize();
 
       // Find special activities in both schedules
@@ -128,8 +128,8 @@ describe('Optimization Debug Tests', () => {
       
       // Create a schedule with violations
       const badMatches = testScenarios.backToBackGames();
-      const currentSchedule = new Schedule(badMatches, rules);
-      const currentScore = currentSchedule.evaluate();
+      const currentSchedule = new Schedule(badMatches);
+      const currentScore = currentSchedule.evaluate(rules);
       
       console.log('Current schedule score (with violations):', currentScore);
       
@@ -138,8 +138,8 @@ describe('Optimization Debug Tests', () => {
         { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1' },
         { team1: 'Team A', team2: 'Team C', timeSlot: 3, field: 'Field 1' }, // No back-to-back
       ]);
-      const betterSchedule = new Schedule(goodMatches, rules);
-      const betterScore = betterSchedule.evaluate();
+      const betterSchedule = new Schedule(goodMatches);
+      const betterScore = betterSchedule.evaluate(rules);
       
       console.log('Better schedule score (no violations):', betterScore);
       
@@ -158,8 +158,8 @@ describe('Optimization Debug Tests', () => {
         { team1: 'Team E', team2: 'Team F', timeSlot: 4, field: 'Field 1', referee: 'Team G' },
       ]);
 
-      const schedule = new Schedule(matches, rules);
-      const originalScore = schedule.evaluate();
+      const schedule = new Schedule(matches);
+      const originalScore = schedule.evaluate(rules);
       
       console.log('=== OPTIMIZATION TRACKING ===');
       console.log('Original score:', originalScore);
@@ -173,7 +173,7 @@ describe('Optimization Debug Tests', () => {
       }> = [];
 
       // Run short optimization to track progress
-      const optimized = await schedule.optimize(100, (info) => {
+      const optimized = await schedule.optimize(rules, 100, (info) => {
         const fingerprint = createScheduleFingerprint(info.bestScheduleSnapshot || schedule);
         progressLog.push({
           iteration: info.iteration,
@@ -187,7 +187,7 @@ describe('Optimization Debug Tests', () => {
         }
       });
 
-      const finalScore = optimized.evaluate();
+      const finalScore = optimized.evaluate(rules);
       console.log('Final score:', finalScore);
       console.log('Final violations:', optimized.violations.map(v => v.description));
 
@@ -232,8 +232,8 @@ describe('Optimization Debug Tests', () => {
         { team1: 'Team K', team2: 'Team L', timeSlot: 4, field: 'Field 2', referee: 'Team B' },
       ]);
 
-      const schedule = new Schedule(matches, rules);
-      const originalScore = schedule.evaluate();
+      const schedule = new Schedule(matches);
+      const originalScore = schedule.evaluate(rules);
       
       console.log('\n=== COMPLEX OPTIMIZATION TEST ===');
       console.log('Total matches:', matches.length);
@@ -247,7 +247,7 @@ describe('Optimization Debug Tests', () => {
       let bestScoreFound = originalScore;
       let improvementIterations: number[] = [];
       
-      const optimized = await schedule.optimize(500, (info) => {
+      const optimized = await schedule.optimize(rules, 500, (info) => {
         if (info.bestScore < bestScoreFound) {
           bestScoreFound = info.bestScore;
           improvementIterations.push(info.iteration);
@@ -255,7 +255,7 @@ describe('Optimization Debug Tests', () => {
         }
       });
 
-      const finalScore = optimized.evaluate();
+      const finalScore = optimized.evaluate(rules);
       console.log('\nFinal score:', finalScore);
       console.log('Final violations count:', optimized.violations.length);
       console.log('Improvements found at iterations:', improvementIterations);
@@ -286,8 +286,8 @@ describe('Optimization Debug Tests', () => {
         { team1: 'Team A', team2: 'Team C', timeSlot: 2, field: 'Field 1' }, // Back-to-back violation
       ]);
 
-      const currentSchedule = new Schedule(matches, rules);
-      const currentScore = currentSchedule.evaluate();
+      const currentSchedule = new Schedule(matches);
+      const currentScore = currentSchedule.evaluate(rules);
       
       console.log('\n=== SINGLE STEP OPTIMIZATION ===');
       console.log('Current score:', currentScore);
@@ -298,7 +298,7 @@ describe('Optimization Debug Tests', () => {
       
       for (let i = 0; i < 10; i++) {
         const randomizedSchedule = currentSchedule.randomize();
-        const randomizedScore = randomizedSchedule.evaluate();
+        const randomizedScore = randomizedSchedule.evaluate(rules);
         
         console.log(`\nStep ${i + 1}:`);
         console.log('  Randomized score:', randomizedScore);

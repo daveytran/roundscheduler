@@ -19,14 +19,16 @@ export interface RuleConfigurationData {
   name: string;
   enabled: boolean;
   priority: number;
-  type: 'builtin' | 'custom';
+  type: 'builtin' | 'custom' | 'duplicated';
   category: 'team' | 'player';
   configuredParams?: { [key: string]: any };
   code?: string; // for custom rules
+  baseRuleId?: string; // for duplicated rules - references the original built-in rule
 }
 
 export interface OptimizerSettings {
   iterations: number;
+  strategyId: string;
 }
 
 const STORAGE_KEY = 'roundSchedulerData';

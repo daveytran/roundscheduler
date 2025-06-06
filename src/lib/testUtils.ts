@@ -137,10 +137,10 @@ export const testScenarios = {
   // Valid schedule with no conflicts
   validSchedule: () =>
     createMockMatches([
-      { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1', referee: 'Team E' },
-      { team1: 'Team C', team2: 'Team D', timeSlot: 1, field: 'Field 2', referee: 'Team F' },
-      { team1: 'Team A', team2: 'Team C', timeSlot: 3, field: 'Field 1', referee: 'Team G' },
-      { team1: 'Team E', team2: 'Team F', timeSlot: 4, field: 'Field 2', referee: 'Team H' },
+      { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1', referee: 'Team G' },
+      { team1: 'Team C', team2: 'Team D', timeSlot: 1, field: 'Field 2', referee: 'Team H' },
+      { team1: 'Team E', team2: 'Team F', timeSlot: 3, field: 'Field 1', referee: 'Team A' },
+      { team1: 'Team I', team2: 'Team J', timeSlot: 4, field: 'Field 2', referee: 'Team K' },
     ]),
 
   // Complex scenario with multiple types of violations

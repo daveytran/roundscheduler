@@ -59,8 +59,8 @@ export interface RuleViolation {
   description: string;
   /** Array of matches involved in the violation (optional) */
   matches?: Match[];
-  /** Severity level of the violation (optional) */
-  severity?: 'low' | 'medium' | 'high';
+  /** Severity level of the violation */
+  level: 'note' | 'warning' | 'alert' | 'critical';
 }
 
 /**
@@ -96,7 +96,7 @@ export interface ViolationBuilder {
   rule: string;
   description: string;
   matches?: Match[];
-  severity?: 'low' | 'medium' | 'high';
+  level?: 'note' | 'warning' | 'alert' | 'critical';
 }
 
 /**
@@ -160,14 +160,14 @@ declare namespace ScheduleHelpers {
    * @param rule Rule name
    * @param description Description of the violation
    * @param matches Matches involved (optional)
-   * @param severity Severity level (optional)
+   * @param level Severity level (optional)
    * @returns Formatted violation object
    */
   function createViolation(
     rule: string,
     description: string,
     matches?: Match[],
-    severity?: 'low' | 'medium' | 'high'
+    level?: 'note' | 'warning' | 'alert' | 'critical'
   ): RuleViolation;
 
   /**
