@@ -24,7 +24,7 @@ interface BuiltinRule {
   enabled: boolean;
   priority: number;
   type: 'builtin';
-  category: 'team' | 'player';
+  category: 'team' | 'player' | 'both';
   class: any;
   description: string;
   parameters?: { [key: string]: any };
@@ -37,7 +37,7 @@ interface CustomRuleConfig {
   enabled: boolean;
   priority: number;
   type: 'custom';
-  category: 'team' | 'player';
+  category: 'team' | 'player' | 'both';
   code: string;
   description?: string;
 }
@@ -48,7 +48,7 @@ interface DuplicatedRule {
   enabled: boolean;
   priority: number;
   type: 'duplicated';
-  category: 'team' | 'player';
+  category: 'team' | 'player' | 'both';
   class: any;
   description: string;
   parameters?: { [key: string]: any };
@@ -101,7 +101,7 @@ export default function RuleConfiguration({
     'function evaluate(schedule) {\n  const violations = [];\n  // Your custom rule logic here\n  return violations;\n}'
   );
   const [customRulePriority, setCustomRulePriority] = useState(2);
-  const [customRuleCategory, setCustomRuleCategory] = useState<'team' | 'player'>('team');
+  const [customRuleCategory, setCustomRuleCategory] = useState<'team' | 'player' | 'both'>('team');
   const [error, setError] = useState<string | null>(null);
   const [editingRule, setEditingRule] = useState<(CustomRuleConfig & { originalId: string }) | null>(null);
   const [showExamples, setShowExamples] = useState(false);
@@ -366,12 +366,20 @@ export default function RuleConfiguration({
     setError(null);
   };
 
-  // Separate rules by category
-  const teamRules = rules.filter(rule => rule.category === 'team');
-  const playerRules = rules.filter(rule => rule.category === 'player');
+  // Sort all rules by priority (highest first)
+  const sortedRules = [...rules].sort((a, b) => b.priority - a.priority);
 
-  const getCategoryColor = (category: 'team' | 'player') => {
-    return category === 'team' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700';
+  const getCategoryColor = (category: 'team' | 'player' | 'both') => {
+    switch (category) {
+      case 'team':
+        return 'bg-blue-100 text-blue-700';
+      case 'player':
+        return 'bg-purple-100 text-purple-700';
+      case 'both':
+        return 'bg-green-100 text-green-700';
+      default:
+        return 'bg-gray-100 text-gray-700';
+    }
   };
 
   const renderParameterControl = (rule: BuiltinRule | DuplicatedRule, paramName: string, param: any) => {
@@ -429,7 +437,7 @@ export default function RuleConfiguration({
     }
   };
 
-  const renderRuleSection = (title: string, sectionRules: Rule[], category: 'team' | 'player') => (
+  const renderRuleSection = (title: string, sectionRules: Rule[]) => (
     <div className="mb-6">
       <h3 className="font-bold mb-3 text-lg">{title}</h3>
       <div className="space-y-4">
@@ -446,16 +454,21 @@ export default function RuleConfiguration({
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
                     <span className={`font-medium ${!rule.enabled ? 'text-gray-400' : ''}`}>{rule.name}</span>
+                    
+                    {/* Category Badge */}
+                    <span className={`px-2 py-1 rounded text-xs ${getCategoryColor(rule.category)}`}>
+                      {rule.category === 'both' ? 'Teams & Players' : rule.category === 'team' ? 'Teams' : 'Players'}
+                    </span>
+                    
+                    {/* Type Badge */}
                     {rule.type === 'builtin' && (
-                      <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">Built-in</span>
+                      <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">Built-in</span>
                     )}
                     {rule.type === 'duplicated' && (
                       <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs">Duplicated</span>
                     )}
                     {rule.type === 'custom' && (
-                      <span className={`px-2 py-1 rounded text-xs ${getCategoryColor(rule.category)}`}>
-                        Custom {rule.category}
-                      </span>
+                      <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs">Custom</span>
                     )}
                   </div>
                   {rule.description && <p className="text-sm text-gray-600 mb-2">{rule.description}</p>}
@@ -529,9 +542,8 @@ export default function RuleConfiguration({
               Configure rules and their priorities. Higher priority rules (1-10) will be satisfied first.
             </p>
             <p className="text-xs text-gray-500">
-              <strong>Team rules</strong> focus on team-level constraints and have higher default priorities.
-              <strong className="ml-2">Player rules</strong> focus on individual player constraints and have lower
-              priorities.
+              Rules are sorted by priority (highest first). <strong>Team rules</strong> focus on team-level constraints, 
+              <strong> Player rules</strong> focus on individual constraints, and <strong> Combined rules</strong> apply to both teams and players.
             </p>
           </div>
           <button
@@ -564,11 +576,8 @@ export default function RuleConfiguration({
           </div>
         </div>
 
-        {/* Team Rules Section */}
-        {renderRuleSection('🏆 Team Rules (Higher Priority)', teamRules, 'team')}
-
-        {/* Player Rules Section */}
-        {renderRuleSection('👤 Player Rules (Lower Priority)', playerRules, 'player')}
+        {/* All Rules Section */}
+        {renderRuleSection('⚙️ Scheduling Rules', sortedRules)}
       </div>
 
       <div className="border-t pt-4">
@@ -593,13 +602,14 @@ export default function RuleConfiguration({
             <select
               value={customRuleCategory}
               onChange={e => {
-                setCustomRuleCategory(e.target.value as 'team' | 'player');
-                setCustomRulePriority(e.target.value === 'team' ? 3 : 2);
+                setCustomRuleCategory(e.target.value as 'team' | 'player' | 'both');
+                setCustomRulePriority(e.target.value === 'team' ? 4 : e.target.value === 'both' ? 3 : 2);
               }}
               className="w-full p-2 border rounded"
             >
-              <option value="team">Team Rule (Higher Priority)</option>
-              <option value="player">Player Rule (Lower Priority)</option>
+              <option value="team">Team Rule</option>
+              <option value="both">Combined Rule (Teams & Players)</option>
+              <option value="player">Player Rule</option>
             </select>
           </div>
           <div>
@@ -637,7 +647,7 @@ export default function RuleConfiguration({
               onClick={handleAddCustomRule}
               className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
             >
-              ➕ Add Custom {customRuleCategory === 'team' ? 'Team' : 'Player'} Rule
+              ➕ Add Custom Rule
             </button>
           )}
         </div>

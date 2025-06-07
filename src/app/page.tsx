@@ -24,6 +24,7 @@ import {
   getDefaultRuleConfigurations,
   createRuleFromConfiguration,
   mergeRuleConfigurations,
+  cleanupDuplicateRules,
 } from '../lib/rules-registry';
 import { Schedule } from '../models/Schedule';
 
@@ -50,6 +51,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<string>('import');
   const [dataLoadedFromStorage, setDataLoadedFromStorage] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<string>('');
+  const [duplicateRulesDetected, setDuplicateRulesDetected] = useState<boolean>(false);
 
   // Initialize rules from configurations
   useEffect(() => {
@@ -69,6 +71,16 @@ export default function Home() {
 
         // Load rule configurations and optimizer settings, merging with new defaults
         if (savedData.ruleConfigurations) {
+          // Check for duplicates before merging
+          const ruleIds = savedData.ruleConfigurations.map(r => r.id);
+          const uniqueIds = new Set(ruleIds);
+          const hasDuplicates = ruleIds.length !== uniqueIds.size;
+          
+          if (hasDuplicates) {
+            console.warn('🚨 Duplicate rules detected in localStorage!');
+            setDuplicateRulesDetected(true);
+          }
+          
           // Merge existing configurations with new default rules
           const mergedConfigurations = mergeRuleConfigurations(savedData.ruleConfigurations);
           setRuleConfigurations(mergedConfigurations);
@@ -142,6 +154,15 @@ export default function Home() {
   const handleRuleConfigurationsChange = useCallback((configs: RuleConfigurationData[]) => {
     setRuleConfigurations(configs);
     saveToLocalStorage({ ruleConfigurations: configs });
+  }, []);
+
+  // Handle cleanup of duplicate rules
+  const handleCleanupDuplicateRules = useCallback(() => {
+    console.log('🧹 User requested duplicate rule cleanup');
+    const cleanConfigs = cleanupDuplicateRules();
+    setRuleConfigurations(cleanConfigs);
+    setDuplicateRulesDetected(false);
+    saveToLocalStorage({ ruleConfigurations: cleanConfigs });
   }, []);
 
   // Handle optimizer settings changes
@@ -391,13 +412,33 @@ export default function Home() {
 
           {activeTab === 'format' && <ScheduleFormatOptions matches={matches} onFormatApplied={handleFormatApplied} />}
 
-          {activeTab === 'rules' && (
+                  {activeTab === 'rules' && (
+          <div>
+            {duplicateRulesDetected && (
+              <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-yellow-800">⚠️ Duplicate Rules Detected</h3>
+                    <p className="text-sm text-yellow-700 mt-1">
+                      Some rules appear to be duplicated in your configuration. This can happen during rule migrations or updates.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleCleanupDuplicateRules}
+                    className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 whitespace-nowrap"
+                  >
+                    🧹 Fix Duplicates
+                  </button>
+                </div>
+              </div>
+            )}
             <RuleConfiguration
               initialConfigurations={ruleConfigurations}
               onConfigurationsChange={handleRuleConfigurationsChange}
               onRulesChange={handleRulesChange}
             />
-          )}
+          </div>
+        )}
 
           {activeTab === 'optimize' && (
             <div className="space-y-6">

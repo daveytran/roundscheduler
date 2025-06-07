@@ -340,6 +340,33 @@ export class Schedule {
       console.log(`🔀 Randomization complete. Changes detected: ${changesDetected}`)
     }
 
+    // Verify match integrity before returning
+    if (randomizedMatches.length !== this.matches.length) {
+      console.error(`❌ randomize() match count mismatch: original=${this.matches.length}, randomized=${randomizedMatches.length}`)
+      console.error(`  Original: ${this.matches.length} total, ${specialActivities.length} special, ${regularMatches.length} regular`)
+      console.error(`  Randomized: ${randomizedMatches.length} total`)
+    }
+    
+    // Verify all special activities are preserved with original time slots
+    const originalSpecialActivities = this.matches.filter(m => m.isSpecialActivity?.())
+    const randomizedSpecialActivities = randomizedMatches.filter(m => m.isSpecialActivity?.())
+    
+    if (originalSpecialActivities.length !== randomizedSpecialActivities.length) {
+      console.error(`❌ randomize() special activity count mismatch: original=${originalSpecialActivities.length}, randomized=${randomizedSpecialActivities.length}`)
+    }
+    
+    // Verify special activities maintain their original time slots and properties
+    originalSpecialActivities.forEach(original => {
+      const randomized = randomizedSpecialActivities.find(r => 
+        r.team1?.name === original.team1?.name && 
+        r.team2?.name === original.team2?.name && 
+        r.activityType === original.activityType
+      )
+      if (!randomized || randomized.timeSlot !== original.timeSlot) {
+        console.error(`❌ Special activity modified during randomization: ${original.team1?.name} ${original.activityType}`)
+      }
+    })
+
     // Create and return a new schedule
     return new Schedule(randomizedMatches)
   }
@@ -685,7 +712,24 @@ export class Schedule {
   }
 
   deepCopy() {
-    return new Schedule(copyMatches(this.matches))
+    const copy = new Schedule(copyMatches(this.matches))
+    copy.score = this.score
+    copy.violations = [...this.violations] // Shallow copy is sufficient for violations array
+    copy.originalScore = this.originalScore
+    
+    // Verify match integrity (debug assertions)
+    if (copy.matches.length !== this.matches.length) {
+      console.error(`❌ deepCopy() match count mismatch: original=${this.matches.length}, copy=${copy.matches.length}`)
+    }
+    
+    // Verify special activities are preserved
+    const originalSpecialCount = this.matches.filter(m => m.isSpecialActivity?.()).length
+    const copySpecialCount = copy.matches.filter(m => m.isSpecialActivity?.()).length
+    if (originalSpecialCount !== copySpecialCount) {
+      console.error(`❌ deepCopy() special activity count mismatch: original=${originalSpecialCount}, copy=${copySpecialCount}`)
+    }
+    
+    return copy
   }
 }
 

@@ -23,7 +23,7 @@ export abstract class ScheduleRule {
 }
 
 /**
- * Rule to avoid consecutive games for teams (playing or refereeing)
+ * Rule to avoid consecutive games for both teams and players
  * 3+ consecutive games = critical violation (priority 10)
  * 2 consecutive games = warning violation (priority 5)
  */
@@ -31,15 +31,22 @@ export class AvoidBackToBackGames extends ScheduleRule {
   name
   constructor(priority = 5) {
     super(priority)
-    this.name = 'Avoid back-to-back games (Teams)'
+    this.name = 'Avoid back-to-back games'
   }
 
   evaluate(schedule: Schedule, violations: RuleViolation[]) {
     const matches = [...schedule.matches].sort((a, b) => a.timeSlot - b.timeSlot)
 
-    // Track each team's consecutive games
-    const teamConsecutiveGames = new Map<string, number>()
+    // Check teams
+    this.checkTeamConsecutiveGames(matches, violations)
+    
+    // Check players
+    this.checkPlayerConsecutiveGames(matches, violations)
 
+    return violations
+  }
+
+  private checkTeamConsecutiveGames(matches: Match[], violations: RuleViolation[]) {
     // Get all teams in the schedule
     const allTeams = new Set<string>()
     matches.forEach(match => {
@@ -56,35 +63,49 @@ export class AvoidBackToBackGames extends ScheduleRule {
 
       if (teamMatches.length < 2) continue
 
-      // Check for consecutive time slots
-      let consecutiveStart = 0
-      for (let i = 1; i < teamMatches.length; i++) {
-        const prevMatch = teamMatches[i - 1]
-        const currMatch = teamMatches[i]
+      this.findConsecutiveStreaks(teamMatches, violations, `Team ${teamName}`)
+    }
+  }
 
-        // If not consecutive, process the previous streak and start a new one
-        if (currMatch.timeSlot !== prevMatch.timeSlot + 1) {
-          const streakLength = i - consecutiveStart
-          if (streakLength >= 2) {
-            this.addConsecutiveViolation(violations, teamName, streakLength, teamMatches.slice(consecutiveStart, i))
-          }
-          consecutiveStart = i
+  private checkPlayerConsecutiveGames(matches: Match[], violations: RuleViolation[]) {
+    const playerMatches = ScheduleHelpers.groupMatchesByPlayer(matches)
+
+    // Check each player's matches for consecutive games
+    Object.entries(playerMatches).forEach(([playerName, playerMatchList]) => {
+      if (playerMatchList.length < 2) return
+
+      const sortedMatches = playerMatchList.sort((a, b) => a.timeSlot - b.timeSlot)
+      this.findConsecutiveStreaks(sortedMatches, violations, `Player ${playerName}`)
+    })
+  }
+
+  private findConsecutiveStreaks(matches: Match[], violations: RuleViolation[], entityName: string) {
+    // Check for consecutive time slots
+    let consecutiveStart = 0
+    for (let i = 1; i < matches.length; i++) {
+      const prevMatch = matches[i - 1]
+      const currMatch = matches[i]
+
+      // If not consecutive, process the previous streak and start a new one
+      if (currMatch.timeSlot !== prevMatch.timeSlot + 1) {
+        const streakLength = i - consecutiveStart
+        if (streakLength >= 2) {
+          this.addConsecutiveViolation(violations, entityName, streakLength, matches.slice(consecutiveStart, i))
         }
-      }
-
-      // Check the final streak
-      const finalStreakLength = teamMatches.length - consecutiveStart
-      if (finalStreakLength >= 2) {
-        this.addConsecutiveViolation(violations, teamName, finalStreakLength, teamMatches.slice(consecutiveStart))
+        consecutiveStart = i
       }
     }
 
-    return violations
+    // Check the final streak
+    const finalStreakLength = matches.length - consecutiveStart
+    if (finalStreakLength >= 2) {
+      this.addConsecutiveViolation(violations, entityName, finalStreakLength, matches.slice(consecutiveStart))
+    }
   }
 
   private addConsecutiveViolation(
     violations: RuleViolation[],
-    teamName: string,
+    entityName: string,
     streakLength: number,
     matches: Match[]
   ) {
@@ -95,14 +116,14 @@ export class AvoidBackToBackGames extends ScheduleRule {
     if (streakLength >= 3) {
       violations.push({
         rule: this.name,
-        description: `${teamName}: ${streakLength} consecutive games in time ${timeSlotRange}`,
+        description: `${entityName}: ${streakLength} consecutive games in time ${timeSlotRange}`,
         matches: matches,
         level: 'warning',
       })
     } else if (streakLength === 2) {
       violations.push({
         rule: this.name,
-        description: `${teamName}: 2 back-to-back games in time ${timeSlotRange}`,
+        description: `${entityName}: 2 back-to-back games in time ${timeSlotRange}`,
         matches: matches,
         level: 'warning',
       })
@@ -111,21 +132,31 @@ export class AvoidBackToBackGames extends ScheduleRule {
 }
 
 /**
- * Rule to avoid teams having the first and last game
+ * Rule to avoid teams and players having the first and last game
  * Considers setup activities + first game as "first", and last game + packdown activities as "last"
  */
 export class AvoidFirstAndLastGame extends ScheduleRule {
   name
   constructor(priority = 2) {
     super(priority)
-    this.name = 'Avoid teams having first and last game'
+    this.name = 'Avoid having first and last game'
   }
 
   evaluate(schedule: Schedule, violations: RuleViolation[]) {
     const matches = [...schedule.matches]
 
-    if (matches.length === 0) return
+    if (matches.length === 0) return violations
 
+    // Check teams
+    this.checkTeamFirstAndLast(matches, violations)
+    
+    // Check players
+    this.checkPlayerFirstAndLast(matches, violations)
+
+    return violations
+  }
+
+  private checkTeamFirstAndLast(matches: Match[], violations: RuleViolation[]) {
     // Separate activities by type
     const setupActivities = matches.filter(m => m.activityType === 'SETUP')
     const regularMatches = matches.filter(m => m.activityType === 'REGULAR')
@@ -213,8 +244,89 @@ export class AvoidFirstAndLastGame extends ScheduleRule {
         level: 'alert',
       })
     })
+  }
 
-    return violations
+  private checkPlayerFirstAndLast(matches: Match[], violations: RuleViolation[]) {
+    // Separate activities by type
+    const setupActivities = matches.filter(m => m.activityType === 'SETUP')
+    const regularMatches = matches.filter(m => m.activityType === 'REGULAR')
+    const packdownActivities = matches.filter(m => m.activityType === 'PACKING_DOWN')
+
+    // Sort all regular matches by time slot to find global first and last
+    const sortedRegularMatches = regularMatches.sort((a, b) => a.timeSlot - b.timeSlot)
+
+    if (sortedRegularMatches.length === 0) return // Skip if no regular matches
+
+    // Get players involved in "first" period (setup + first regular game of the day)
+    const firstPeriodPlayers = new Set<string>()
+
+    // Add players from setup activities
+    setupActivities.forEach(activity => {
+      const activityPlayers = ScheduleHelpers.getPlayersInMatch(activity)
+      activityPlayers.forEach(player => {
+        if (player.name !== 'ACTIVITY_PLACEHOLDER') {
+          firstPeriodPlayers.add(player.name)
+        }
+      })
+    })
+
+    // Add players from ALL games in the first time slot of the day
+    const firstTimeSlot = sortedRegularMatches[0].timeSlot
+    const firstSlotMatches = sortedRegularMatches.filter(match => match.timeSlot === firstTimeSlot)
+    firstSlotMatches.forEach(match => {
+      const firstMatchPlayers = ScheduleHelpers.getPlayersInMatch(match)
+      firstMatchPlayers.forEach(player => {
+        firstPeriodPlayers.add(player.name)
+      })
+    })
+
+    // Get players involved in "last" period (ALL games in last time slot + packdown)
+    const lastPeriodPlayers = new Set<string>()
+
+    // Add players from ALL games in the last time slot of the day
+    const lastTimeSlot = sortedRegularMatches[sortedRegularMatches.length - 1].timeSlot
+    const lastSlotMatches = sortedRegularMatches.filter(match => match.timeSlot === lastTimeSlot)
+    lastSlotMatches.forEach(match => {
+      const lastMatchPlayers = ScheduleHelpers.getPlayersInMatch(match)
+      lastMatchPlayers.forEach(player => {
+        lastPeriodPlayers.add(player.name)
+      })
+    })
+
+    // Add players from packdown activities
+    packdownActivities.forEach(activity => {
+      const activityPlayers = ScheduleHelpers.getPlayersInMatch(activity)
+      activityPlayers.forEach(player => {
+        if (player.name !== 'ACTIVITY_PLACEHOLDER') {
+          lastPeriodPlayers.add(player.name)
+        }
+      })
+    })
+
+    // Check for players who appear in both first and last periods
+    const playersWithFirstAndLast = Array.from(firstPeriodPlayers).filter(playerName =>
+      lastPeriodPlayers.has(playerName)
+    )
+
+    playersWithFirstAndLast.forEach(playerName => {
+      // Collect all relevant matches for this violation
+      const relevantMatches = [
+        ...setupActivities,
+        ...firstSlotMatches,
+        ...lastSlotMatches,
+        ...packdownActivities,
+      ].filter(match => {
+        const matchPlayers = ScheduleHelpers.getPlayersInMatch(match)
+        return matchPlayers.some(player => player.name === playerName)
+      })
+
+      violations.push({
+        rule: this.name,
+        description: `Player ${playerName} participates in both first period (setup + first game) and last period (last game + packdown) of the day`,
+        matches: relevantMatches,
+        level: 'alert',
+      })
+    })
   }
 }
 
@@ -372,122 +484,53 @@ export class PreventTeamDoubleBooking extends ScheduleRule {
   }
 }
 
-// ===== PLAYER-BASED RULES (Lower Priority) =====
+// ===== ADDITIONAL RULES =====
 
 /**
- * Rule to avoid individual players playing consecutive games
- * 3+ consecutive games = critical violation (priority 10)
- * 2 consecutive games = warning violation (priority 3)
+ * Rule to manage rest time and gaps between games for players
  */
-export class AvoidPlayerBackToBackGames extends ScheduleRule {
+export class ManageRestTimeAndGaps extends ScheduleRule {
   name
-  constructor(priority = 3) {
+  minRestSlots
+  maxGapSlots
+  constructor(priority = 1, minRestSlots = 2, maxGapSlots = 6) {
     super(priority)
-    this.name = 'Avoid players playing back-to-back games'
+    this.name = 'Manage rest time and gaps'
+    this.minRestSlots = minRestSlots
+    this.maxGapSlots = maxGapSlots
   }
 
   evaluate(schedule: Schedule, violations: RuleViolation[]) {
     const matches = [...schedule.matches].sort((a, b) => a.timeSlot - b.timeSlot)
     const playerMatches = ScheduleHelpers.groupMatchesByPlayer(matches)
 
-    // Check each player's matches for consecutive games
+    // Check each player's matches for adequate rest and reasonable gaps
     Object.entries(playerMatches).forEach(([playerName, playerMatchList]) => {
       if (playerMatchList.length < 2) return
 
       const sortedMatches = playerMatchList.sort((a, b) => a.timeSlot - b.timeSlot)
 
-      // Check for consecutive time slots - same logic as team detection
-      let consecutiveStart = 0
       for (let i = 1; i < sortedMatches.length; i++) {
         const prevMatch = sortedMatches[i - 1]
         const currMatch = sortedMatches[i]
-
-        // If not consecutive, process the previous streak and start a new one
-        if (currMatch.timeSlot !== prevMatch.timeSlot + 1) {
-          const streakLength = i - consecutiveStart
-          if (streakLength >= 2) {
-            this.addPlayerConsecutiveViolation(
-              violations,
-              playerName,
-              streakLength,
-              sortedMatches.slice(consecutiveStart, i)
-            )
-          }
-          consecutiveStart = i
-        }
-      }
-
-      // Check the final streak
-      const finalStreakLength = sortedMatches.length - consecutiveStart
-      if (finalStreakLength >= 2) {
-        this.addPlayerConsecutiveViolation(
-          violations,
-          playerName,
-          finalStreakLength,
-          sortedMatches.slice(consecutiveStart)
-        )
-      }
-    })
-
-    return violations
-  }
-
-  private addPlayerConsecutiveViolation(
-    violations: RuleViolation[],
-    playerName: string,
-    streakLength: number,
-    matches: Match[]
-  ) {
-    if (streakLength >= 3) {
-      violations.push({
-        rule: this.name,
-        description: `Player ${playerName}: ${streakLength} consecutive games`,
-        matches: matches,
-        level: 'warning',
-      })
-    } else if (streakLength === 2) {
-      violations.push({
-        rule: this.name,
-        description: `Player ${playerName}: 2 back-to-back games`,
-        matches: matches,
-        level: 'note',
-      })
-    }
-  }
-}
-
-/**
- * Rule to ensure players get adequate rest between games
- */
-export class EnsurePlayerRestTime extends ScheduleRule {
-  name
-  minRestSlots
-  constructor(priority = 1, minRestSlots = 2) {
-    super(priority)
-    this.name = 'Ensure player rest time'
-    this.minRestSlots = minRestSlots
-  }
-
-  evaluate(schedule: Schedule, violations: RuleViolation[]) {
-    const matches = [...schedule.matches].sort((a, b) => a.timeSlot - b.timeSlot)
-    const playerMatches = ScheduleHelpers.groupMatchesByPlayer(matches)
-
-    // Check each player's matches for adequate rest
-    Object.entries(playerMatches).forEach(([playerName, playerMatchList]) => {
-      const sortedMatches = playerMatchList.sort((a, b) => a.timeSlot - b.timeSlot)
-
-      for (let i = 1; i < sortedMatches.length; i++) {
-        const prevMatch = sortedMatches[i - 1]
-        const currMatch = sortedMatches[i]
-        const restTime = currMatch.timeSlot - prevMatch.timeSlot - 1
+        const gap = currMatch.timeSlot - prevMatch.timeSlot - 1
 
         // Check if rest time is insufficient
-        if (restTime < this.minRestSlots) {
+        if (gap < this.minRestSlots) {
           violations.push({
             rule: this.name,
-            description: `Player ${playerName} has insufficient rest (${restTime} slots) between games in slots ${prevMatch.timeSlot} and ${currMatch.timeSlot}`,
+            description: `Player ${playerName} has insufficient rest (${gap} slots) between games in slots ${prevMatch.timeSlot} and ${currMatch.timeSlot}`,
             matches: [prevMatch, currMatch],
             level: 'note',
+          })
+        }
+        // Check if gap is too large
+        else if (gap > this.maxGapSlots) {
+          violations.push({
+            rule: this.name,
+            description: `Player ${playerName} has ${gap}-slot gap between games (slots ${prevMatch.timeSlot} and ${currMatch.timeSlot})`,
+            matches: [prevMatch, currMatch],
+            level: 'warning',
           })
         }
       }
@@ -498,22 +541,24 @@ export class EnsurePlayerRestTime extends ScheduleRule {
 }
 
 /**
- * Rule to limit the number of games a player can play
+ * Rule to manage player game count limits and distribution balance
  */
-export class LimitPlayerGameCount extends ScheduleRule {
+export class ManagePlayerGameBalance extends ScheduleRule {
   name
   maxGames
-  constructor(priority = 1, maxGames = 4) {
+  maxGameDifference
+  constructor(priority = 1, maxGames = 4, maxGameDifference = 1) {
     super(priority)
-    this.name = 'Limit player game count'
+    this.name = 'Manage player game balance'
     this.maxGames = maxGames
+    this.maxGameDifference = maxGameDifference
   }
 
   evaluate(schedule: Schedule, violations: RuleViolation[]) {
     const matches = [...schedule.matches]
     const playerMatches = ScheduleHelpers.groupMatchesByPlayer(matches)
 
-    // Check each player's game count
+    // Check individual player game counts
     Object.entries(playerMatches).forEach(([playerName, playerMatchList]) => {
       if (playerMatchList.length > this.maxGames) {
         violations.push({
@@ -525,110 +570,49 @@ export class LimitPlayerGameCount extends ScheduleRule {
       }
     })
 
-    return violations
-  }
-}
-
-/**
- * Rule to avoid players having first and last game in a division
- * Considers setup activities + first game as "first", and last game + packdown activities as "last"
- */
-export class AvoidPlayerFirstAndLastGame extends ScheduleRule {
-  name
-  constructor(priority = 1) {
-    super(priority)
-    this.name = 'Avoid players having first and last game'
-  }
-
-  evaluate(schedule: Schedule, violations: RuleViolation[]) {
-    const matches = [...schedule.matches]
-
-    if (matches.length === 0) return violations
-
-    // Separate activities by type
-    const setupActivities = matches.filter(m => m.activityType === 'SETUP')
-    const regularMatches = matches.filter(m => m.activityType === 'REGULAR')
-    const packdownActivities = matches.filter(m => m.activityType === 'PACKING_DOWN')
-
-    // Sort all regular matches by time slot to find global first and last
-    const sortedRegularMatches = regularMatches.sort((a, b) => a.timeSlot - b.timeSlot)
-
-    if (sortedRegularMatches.length === 0) return violations // Skip if no regular matches
-
-    // Get players involved in "first" period (setup + first regular game of the day)
-    const firstPeriodPlayers = new Set<string>()
-
-    // Add players from setup activities
-    setupActivities.forEach(activity => {
-      const activityPlayers = ScheduleHelpers.getPlayersInMatch(activity)
-      activityPlayers.forEach(player => {
-        if (player.name !== 'ACTIVITY_PLACEHOLDER') {
-          firstPeriodPlayers.add(player.name)
-        }
-      })
-    })
-
-    // Add players from ALL games in the first time slot of the day
-    const firstTimeSlot = sortedRegularMatches[0].timeSlot
-    const firstSlotMatches = sortedRegularMatches.filter(match => match.timeSlot === firstTimeSlot)
-    firstSlotMatches.forEach(match => {
-      const firstMatchPlayers = ScheduleHelpers.getPlayersInMatch(match)
-      firstMatchPlayers.forEach(player => {
-        firstPeriodPlayers.add(player.name)
-      })
-    })
-
-    // Get players involved in "last" period (ALL games in last time slot + packdown)
-    const lastPeriodPlayers = new Set<string>()
-
-    // Add players from ALL games in the last time slot of the day
-    const lastTimeSlot = sortedRegularMatches[sortedRegularMatches.length - 1].timeSlot
-    const lastSlotMatches = sortedRegularMatches.filter(match => match.timeSlot === lastTimeSlot)
-    lastSlotMatches.forEach(match => {
-      const lastMatchPlayers = ScheduleHelpers.getPlayersInMatch(match)
-      lastMatchPlayers.forEach(player => {
-        lastPeriodPlayers.add(player.name)
-      })
-    })
-
-    // Add players from packdown activities
-    packdownActivities.forEach(activity => {
-      const activityPlayers = ScheduleHelpers.getPlayersInMatch(activity)
-      activityPlayers.forEach(player => {
-        if (player.name !== 'ACTIVITY_PLACEHOLDER') {
-          lastPeriodPlayers.add(player.name)
-        }
-      })
-    })
-
-    // Check for players who appear in both first and last periods
-    const playersWithFirstAndLast = Array.from(firstPeriodPlayers).filter(playerName =>
-      lastPeriodPlayers.has(playerName)
-    )
-
-    playersWithFirstAndLast.forEach(playerName => {
-      // Collect all relevant matches for this violation
-      const relevantMatches = [
-        ...setupActivities,
-        ...firstSlotMatches,
-        ...lastSlotMatches,
-        ...packdownActivities,
-      ].filter(match => {
-        const matchPlayers = ScheduleHelpers.getPlayersInMatch(match)
-        return matchPlayers.some(player => player.name === playerName)
-      })
-
-      violations.push({
-        rule: this.name,
-        description: `Player ${playerName} participates in both first period (setup + first game) and last period (last game + packdown) of the day`,
-        matches: relevantMatches,
-        level: 'alert',
-      })
-    })
+    // Check game distribution balance within divisions
+    this.checkGameDistributionBalance(matches, playerMatches, violations)
 
     return violations
   }
+
+  private checkGameDistributionBalance(matches: Match[], playerMatches: { [playerName: string]: Match[] }, violations: RuleViolation[]) {
+    // Group by division to ensure fairness within divisions
+    const divisionPlayers: { [division: string]: { [playerName: string]: number } } = {}
+    Object.entries(playerMatches).forEach(([playerName, playerMatchList]) => {
+      playerMatchList.forEach(match => {
+        const division = (match.team1.division || match.team2.division || 'default') as string
+        if (!divisionPlayers[division]) {
+          divisionPlayers[division] = {}
+        }
+        if (!divisionPlayers[division][playerName]) {
+          divisionPlayers[division][playerName] = 0
+        }
+        divisionPlayers[division][playerName]++
+      })
+    })
+
+    // Check balance within each division
+    Object.entries(divisionPlayers).forEach(([division, players]) => {
+      const gameCounts = Object.values(players)
+      if (gameCounts.length === 0) return
+
+      const minGames = Math.min(...gameCounts)
+      const maxGames = Math.max(...gameCounts)
+
+      if (maxGames - minGames > this.maxGameDifference) {
+        violations.push({
+          rule: this.name,
+          description: `Game distribution imbalance in ${division}: ${minGames}-${maxGames} games (max difference: ${this.maxGameDifference})`,
+          matches: [], // Could add specific matches if needed
+          level: 'warning',
+        })
+      }
+    })
+  }
 }
+
+
 
 /**
  * Custom rule to implement specific scheduling constraints
@@ -648,21 +632,32 @@ export class CustomRule extends ScheduleRule {
 }
 
 /**
- * Rule to limit the maximum time players need to be at the venue
+ * Rule to limit the maximum time players and teams need to be at the venue
  */
-export class LimitPlayerVenueTime extends ScheduleRule {
+export class LimitVenueTime extends ScheduleRule {
   name
   maxHours
   minutesPerSlot
   constructor(priority = 1, maxHours = 5, minutesPerSlot = 30) {
     super(priority)
-    this.name = 'Limit player venue time'
+    this.name = 'Limit venue time'
     this.maxHours = maxHours
     this.minutesPerSlot = minutesPerSlot
   }
 
   evaluate(schedule: Schedule, violations: RuleViolation[]) {
     const matches = [...schedule.matches]
+
+    // Check players
+    this.checkPlayerVenueTime(matches, violations)
+    
+    // Check teams for consecutive field time
+    this.checkTeamVenueTime(matches, violations)
+
+    return violations
+  }
+
+  private checkPlayerVenueTime(matches: Match[], violations: RuleViolation[]) {
     const playerMatches = ScheduleHelpers.groupMatchesByPlayer(matches)
 
     // Check each player's venue time
@@ -686,107 +681,54 @@ export class LimitPlayerVenueTime extends ScheduleRule {
         })
       }
     })
-
-    return violations
-  }
-}
-
-/**
- * Rule to ensure balanced game distribution among players
- */
-export class BalancePlayerGameDistribution extends ScheduleRule {
-  name
-  maxGameDifference
-  constructor(priority = 1, maxGameDifference = 1) {
-    super(priority)
-    this.name = 'Balance player game distribution'
-    this.maxGameDifference = maxGameDifference
   }
 
-  evaluate(schedule: Schedule, violations: RuleViolation[]) {
-    const matches = [...schedule.matches]
-    const playerMatches = ScheduleHelpers.groupMatchesByPlayer(matches)
+  private checkTeamVenueTime(matches: Match[], violations: RuleViolation[]) {
+    const sortedMatches = [...matches].sort((a, b) => a.timeSlot - b.timeSlot)
 
-    // Group by division to ensure fairness within divisions
-    const divisionPlayers: { [division: string]: { [playerName: string]: number } } = {}
-    Object.entries(playerMatches).forEach(([playerName, playerMatchList]) => {
-      playerMatchList.forEach(match => {
-        const division = (match.team1.division || match.team2.division || 'default') as string
-        if (!divisionPlayers[division]) {
-          divisionPlayers[division] = {}
+    // Get all unique fields
+    const fields = Array.from(new Set(sortedMatches.map(m => m.field)))
+
+    // Check each field for extended team presence
+    for (const field of fields) {
+      const venueMatches = sortedMatches.filter(m => m.field === field)
+
+      // Get all teams that play/ref at this venue
+      const teamsAtVenue = new Set<string>()
+      venueMatches.forEach(match => {
+        teamsAtVenue.add(match.team1.name)
+        teamsAtVenue.add(match.team2.name)
+        if (match.refereeTeam) {
+          teamsAtVenue.add(match.refereeTeam.name)
         }
-        if (!divisionPlayers[division][playerName]) {
-          divisionPlayers[division][playerName] = 0
-        }
-        divisionPlayers[division][playerName]++
       })
-    })
 
-    // Check balance within each division
-    Object.entries(divisionPlayers).forEach(([division, players]) => {
-      const gameCounts = Object.values(players)
-      const minGames = Math.min(...gameCounts)
-      const maxGames = Math.max(...gameCounts)
+      // Check each team's time at this venue
+      for (const teamName of Array.from(teamsAtVenue)) {
+        const teamVenueMatches = venueMatches
+          .filter(m => m.team1.name === teamName || m.team2.name === teamName || m.refereeTeam?.name === teamName)
+          .sort((a, b) => a.timeSlot - b.timeSlot)
 
-      if (maxGames - minGames > this.maxGameDifference) {
-        const overScheduledPlayers = Object.entries(players)
-          .filter(([_, count]) => count === maxGames)
-          .map(([name, _]) => name)
-
-        violations.push({
-          rule: this.name,
-          description: `Game distribution imbalance in ${division}: ${minGames}-${maxGames} games (max difference: ${this.maxGameDifference})`,
-          matches: [], // Could add specific matches if needed
-          level: 'warning',
-        })
-      }
-    })
-
-    return violations
-  }
-}
-
-/**
- * Rule to avoid players having large gaps between games
- */
-export class AvoidPlayerLargeGaps extends ScheduleRule {
-  name
-  maxGapSlots
-  constructor(priority = 1, maxGapSlots = 6) {
-    super(priority)
-    this.name = 'Avoid large gaps between player games'
-    this.maxGapSlots = maxGapSlots
-  }
-
-  evaluate(schedule: Schedule, violations: RuleViolation[]) {
-    const matches = [...schedule.matches]
-    const playerMatches = ScheduleHelpers.groupMatchesByPlayer(matches)
-
-    // Check each player's gaps between games
-    Object.entries(playerMatches).forEach(([playerName, playerMatchList]) => {
-      if (playerMatchList.length < 2) return
-
-      const sortedMatches = playerMatchList.sort((a, b) => a.timeSlot - b.timeSlot)
-
-      for (let i = 1; i < sortedMatches.length; i++) {
-        const prevMatch = sortedMatches[i - 1]
-        const currMatch = sortedMatches[i]
-        const gap = currMatch.timeSlot - prevMatch.timeSlot - 1
-
-        if (gap > this.maxGapSlots) {
-          violations.push({
-            rule: this.name,
-            description: `Player ${playerName} has ${gap}-slot gap between games (slots ${prevMatch.timeSlot} and ${currMatch.timeSlot})`,
-            matches: [prevMatch, currMatch],
-            level: 'warning',
-          })
+        if (teamVenueMatches.length >= 3) {
+          const timeSpan = teamVenueMatches[teamVenueMatches.length - 1].timeSlot - teamVenueMatches[0].timeSlot
+          if (timeSpan <= 3) {
+            // If 3+ games within 3 time slots
+            violations.push({
+              rule: this.name,
+              description: `Team ${teamName}: Extended time at ${field} (${teamVenueMatches.length} games in ${timeSpan + 1} slots)`,
+              matches: teamVenueMatches,
+              level: 'warning',
+            })
+          }
         }
       }
-    })
-
-    return violations
+    }
   }
 }
+
+
+
+
 
 /**
  * Rule to ensure players have warm-up time before their first game
@@ -855,10 +797,6 @@ export class BalanceRefereeAssignments extends ScheduleRule {
       const maxAssignments = Math.max(...refereeCounts)
 
       if (maxAssignments - minAssignments > this.maxRefereeDifference) {
-        const overAssignedTeams = Object.entries(teamRefereeCount)
-          .filter(([_, count]) => count === maxAssignments)
-          .map(([name, _]) => name)
-
         violations.push({
           rule: this.name,
           description: `Referee assignment imbalance: ${minAssignments}-${maxAssignments} assignments (max difference: ${this.maxRefereeDifference})`,
@@ -877,9 +815,11 @@ export class BalanceRefereeAssignments extends ScheduleRule {
  */
 export class EnsureFairFieldDistribution extends ScheduleRule {
   name
-  constructor(priority = 1) {
+  fieldDistributionThreshold
+  constructor(priority = 1, fieldDistributionThreshold = 0.6) {
     super(priority)
     this.name = 'Ensure fair field distribution'
+    this.fieldDistributionThreshold = fieldDistributionThreshold
   }
 
   evaluate(schedule: Schedule, violations: RuleViolation[]) {
@@ -902,8 +842,8 @@ export class EnsureFairFieldDistribution extends ScheduleRule {
       const totalGames = Object.values(fieldCounts).reduce((sum: number, count: number) => sum + count, 0)
       const maxFieldGames = Math.max(...Object.values(fieldCounts))
 
-      // If a team plays more than 60% of their games on one field, flag it
-      if (totalGames >= 3 && maxFieldGames / totalGames > 0.6) {
+      // If a team plays more than threshold of their games on one field, flag it
+      if (totalGames >= 3 && maxFieldGames / totalGames > this.fieldDistributionThreshold) {
         const dominantField = Object.entries(fieldCounts).find(([_, count]) => count === maxFieldGames)?.[0]
 
         violations.push({
@@ -919,58 +859,6 @@ export class EnsureFairFieldDistribution extends ScheduleRule {
   }
 }
 
-/**
- * Rule to limit teams spending too much consecutive time at the same venue
- * Checks if teams have 3+ games within 3 time slots at the same field
- */
-export class LimitTeamVenueTime extends ScheduleRule {
-  name
-  constructor(priority = 2) {
-    super(priority)
-    this.name = 'Limit team venue time'
-  }
 
-  evaluate(schedule: Schedule, violations: RuleViolation[]) {
-    const matches = [...schedule.matches].sort((a, b) => a.timeSlot - b.timeSlot)
 
-    // Get all unique fields
-    const fields = Array.from(new Set(matches.map(m => m.field)))
 
-    // Check each field
-    for (const field of fields) {
-      const venueMatches = matches.filter(m => m.field === field)
-
-      // Get all teams that play/ref at this venue
-      const teamsAtVenue = new Set<string>()
-      venueMatches.forEach(match => {
-        teamsAtVenue.add(match.team1.name)
-        teamsAtVenue.add(match.team2.name)
-        if (match.refereeTeam) {
-          teamsAtVenue.add(match.refereeTeam.name)
-        }
-      })
-
-      // Check each team's time at this venue
-      for (const teamName of Array.from(teamsAtVenue)) {
-        const teamVenueMatches = venueMatches
-          .filter(m => m.team1.name === teamName || m.team2.name === teamName || m.refereeTeam?.name === teamName)
-          .sort((a, b) => a.timeSlot - b.timeSlot)
-
-        if (teamVenueMatches.length >= 3) {
-          const timeSpan = teamVenueMatches[teamVenueMatches.length - 1].timeSlot - teamVenueMatches[0].timeSlot
-          if (timeSpan <= 3) {
-            // If 3+ games within 3 time slots
-            violations.push({
-              rule: this.name,
-              description: `${teamName}: Extended time at ${field}`,
-              matches: teamVenueMatches,
-              level: 'warning',
-            })
-          }
-        }
-      }
-    }
-
-    return violations
-  }
-}

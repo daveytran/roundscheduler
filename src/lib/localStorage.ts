@@ -20,7 +20,7 @@ export interface RuleConfigurationData {
   enabled: boolean;
   priority: number;
   type: 'builtin' | 'custom' | 'duplicated';
-  category: 'team' | 'player';
+  category: 'team' | 'player' | 'both';
   configuredParams?: { [key: string]: any };
   code?: string; // for custom rules
   baseRuleId?: string; // for duplicated rules - references the original built-in rule

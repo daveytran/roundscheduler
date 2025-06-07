@@ -37,9 +37,9 @@ export interface OptimizationStrategyInfo {
 }
 
 export const RANDOM_OPTIMIZE: Optimize<number> = (state, iteration, rules) => {
-  const coolingRate = 0.995
+  const coolingRate = 0.9985 // Slower cooling for better exploration
 
-  let temperature: number = state.storage ?? 100
+  let temperature: number = state.storage ?? 150 // Higher initial temperature
   
   // Create a new candidate solution
   const newSchedule = state.currentSchedule.randomize()
@@ -94,162 +94,6 @@ interface GeneticAlgorithmStorage {
   stagnationCount: number
 }
 
-export const GENETIC_OPTIMIZE: Optimize<GeneticAlgorithmStorage> = (state, iteration, rules) => {
-  const POPULATION_SIZE = 20
-  const ELITE_SIZE = 4
-  const MUTATION_RATE = 0.3
-  const CROSSOVER_RATE = 0.7
-  const MAX_STAGNATION = 100
-
-  let storage = state.storage || {
-    population: [],
-    generation: 0,
-    stagnationCount: 0
-  }
-
-  // Initialize population on first iteration
-  if (storage.population.length === 0) {
-    console.log('🧬 Initializing genetic algorithm population')
-    storage.population = [state.currentSchedule.deepCopy()]
-    
-    // Create diverse initial population
-    for (let i = 1; i < POPULATION_SIZE; i++) {
-      const candidate = state.currentSchedule.randomize()
-      candidate.evaluate(rules)
-      storage.population.push(candidate)
-    }
-    
-    // Sort by fitness (lower score is better)
-    storage.population.sort((a, b) => a.score - b.score)
-  }
-
-  storage.generation++
-
-  // Selection: Tournament selection for parents
-  const selectParent = (): Schedule => {
-    const tournamentSize = 3
-    const tournament = []
-    for (let i = 0; i < tournamentSize; i++) {
-      tournament.push(storage.population[Math.floor(Math.random() * storage.population.length)])
-    }
-    tournament.sort((a, b) => a.score - b.score)
-    return tournament[0]
-  }
-
-  // Crossover: Mix matches from two parents strategically
-  const crossover = (parent1: Schedule, parent2: Schedule): Schedule => {
-    const child = parent1.deepCopy()
-    
-    // Get matches grouped by division
-    const parent1ByDivision = groupMatchesByDivision(parent1.matches)
-    const parent2ByDivision = groupMatchesByDivision(parent2.matches)
-    
-    // For each division, randomly choose time slot assignments from either parent
-    Object.keys(parent1ByDivision).forEach(division => {
-      if (Math.random() < 0.5 && parent2ByDivision[division]) {
-        const p1Matches = parent1ByDivision[division]
-        const p2Matches = parent2ByDivision[division]
-        
-        // Try to copy time slot pattern from parent2 to child
-        if (p1Matches.length === p2Matches.length) {
-          p1Matches.forEach((match, index) => {
-            if (p2Matches[index]) {
-              const childMatch = child.matches.find(m => 
-                m.team1.name === match.team1.name && 
-                m.team2.name === match.team2.name
-              )
-              if (childMatch) {
-                childMatch.timeSlot = p2Matches[index].timeSlot
-                childMatch.field = p2Matches[index].field
-              }
-            }
-          })
-        }
-      }
-    })
-    
-    return child
-  }
-
-  // Mutation: Strategic swapping based on violations
-  const mutate = (schedule: Schedule): Schedule => {
-    const mutated = schedule.deepCopy()
-    mutated.evaluate(rules)
-    
-    if (Math.random() < MUTATION_RATE) {
-      // Strategic mutation: target matches involved in violations
-      if (mutated.violations.length > 0) {
-        strategicSwap(mutated)
-      } else {
-        // Random mutation if no violations
-        mutated.matches = mutated.randomize().matches
-      }
-    }
-    
-    return mutated
-  }
-
-  // Create new generation
-  const newPopulation: Schedule[] = []
-  
-  // Keep elite (best performers)
-  const elite = storage.population.slice(0, ELITE_SIZE)
-  newPopulation.push(...elite.map(s => s.deepCopy()))
-  
-  // Create offspring through crossover and mutation
-  while (newPopulation.length < POPULATION_SIZE) {
-    const parent1 = selectParent()
-    const parent2 = selectParent()
-    
-    let offspring: Schedule
-    if (Math.random() < CROSSOVER_RATE) {
-      offspring = crossover(parent1, parent2)
-    } else {
-      offspring = parent1.deepCopy()
-    }
-    
-    offspring = mutate(offspring)
-    offspring.evaluate(rules)
-    newPopulation.push(offspring)
-  }
-
-  // Sort new population by fitness
-  newPopulation.sort((a, b) => a.score - b.score)
-  storage.population = newPopulation
-
-  const currentBest = storage.population[0]
-  let bestSchedule: Schedule | undefined = undefined
-  let currentSchedule: Schedule | undefined = undefined
-
-  // Check for improvement
-  if (currentBest.score < state.bestScore) {
-    bestSchedule = currentBest.deepCopy()
-    storage.stagnationCount = 0
-    console.log(`🧬 Genetic algorithm found new best: ${currentBest.score} (generation ${storage.generation})`)
-  } else {
-    storage.stagnationCount++
-  }
-
-  // Introduce diversity if stagnated
-  if (storage.stagnationCount > MAX_STAGNATION) {
-    console.log('🧬 Population stagnant, introducing diversity')
-    for (let i = ELITE_SIZE; i < storage.population.length; i++) {
-      storage.population[i] = state.currentSchedule.randomize()
-      storage.population[i].evaluate(rules)
-    }
-    storage.population.sort((a, b) => a.score - b.score)
-    storage.stagnationCount = 0
-  }
-
-  // Use current best as the current schedule
-  currentSchedule = currentBest.deepCopy()
-
-  return {
-    currentSchedule,
-    bestSchedule,
-    storage
-  }
-}
 
 // Storage type for strategic optimization
 interface StrategicStorage {
@@ -328,6 +172,8 @@ export const STRATEGIC_OPTIMIZE: Optimize<StrategicStorage> = (state, iteration,
   }
 }
 
+
+
 // Registry of available optimization strategies
 export const OPTIMIZATION_STRATEGIES: OptimizationStrategyInfo[] = [
   {
@@ -336,18 +182,16 @@ export const OPTIMIZATION_STRATEGIES: OptimizationStrategyInfo[] = [
     description: 'Classic optimization using random mutations with temperature-based acceptance. Good general-purpose approach.',
     optimize: RANDOM_OPTIMIZE
   },
-  {
-    id: 'genetic-algorithm',
-    name: 'Genetic Algorithm',
-    description: 'Evolves a population of solutions using crossover and mutation. Explores solution space more systematically.',
-    optimize: GENETIC_OPTIMIZE
-  },
+
   {
     id: 'strategic-swapping',
     name: 'Strategic Swapping',
     description: 'Targets specific rule violations with strategic match swapping. More focused on problem areas.',
     optimize: STRATEGIC_OPTIMIZE
-  }
+  },
+
+
+
 ]
 
 // Helper functions

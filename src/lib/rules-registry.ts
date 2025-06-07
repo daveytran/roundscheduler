@@ -3,17 +3,12 @@ import {
   AvoidFirstAndLastGame,
   AvoidReffingBeforePlaying,
   AvoidPlayingAfterSetup,
-  AvoidPlayerBackToBackGames,
-  EnsurePlayerRestTime,
-  LimitPlayerGameCount,
-  AvoidPlayerFirstAndLastGame,
-  LimitPlayerVenueTime,
-  LimitTeamVenueTime,
-  BalancePlayerGameDistribution,
-  AvoidPlayerLargeGaps,
   EnsurePlayerWarmupTime,
   BalanceRefereeAssignments,
   EnsureFairFieldDistribution,
+  LimitVenueTime,
+  ManageRestTimeAndGaps,
+  ManagePlayerGameBalance,
   CustomRule as CustomRuleClass,
   PreventTeamDoubleBooking,
   ScheduleRule,
@@ -36,7 +31,7 @@ export interface RuleDefinition {
   id: string;
   name: string;
   description: string;
-  category: 'team' | 'player';
+  category: 'team' | 'player' | 'both';
   priority: number;
   enabled: boolean;
   ruleClass: any;
@@ -49,7 +44,7 @@ export interface RuleDefinition {
 // No need to touch any other files - the UI and logic will automatically pick it up.
 //
 export const RULES_REGISTRY: RuleDefinition[] = [
-  // ===== TEAM RULES (Higher Priority) =====
+  // ===== CRITICAL RULES (Cannot be disabled) =====
   {
     id: 'prevent_team_double_booking',
     name: 'Prevent team double-booking',
@@ -70,26 +65,59 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     enabled: true,
     ruleClass: AvoidPlayingAfterSetup,
   },
+
+  // ===== COMBINED RULES (Apply to both teams and players) =====
   {
     id: 'back_to_back',
-    name: 'Avoid back-to-back games (Teams)',
+    name: 'Avoid back-to-back games',
     description:
-      'Prevents teams from playing in consecutive time slots, which could cause fatigue and scheduling conflicts.',
-    category: 'team',
+      'Prevents teams and players from playing in consecutive time slots, which could cause fatigue and scheduling conflicts.',
+    category: 'both',
     priority: 5,
     enabled: true,
     ruleClass: AvoidBackToBackGames,
   },
   {
     id: 'first_last',
-    name: 'Avoid teams having first and last game',
+    name: 'Avoid having first and last game',
     description:
-      "Ensures teams don't have to stay for the entire event duration by avoiding both the first and last games.",
-    category: 'team',
+      "Ensures teams and players don't have to stay for the entire event duration by avoiding both the first and last games.",
+    category: 'both',
     priority: 4,
     enabled: true,
     ruleClass: AvoidFirstAndLastGame,
   },
+  {
+    id: 'limit_venue_time',
+    name: 'Limit venue time',
+    description: 'Limits venue time for players and prevents teams from extended consecutive field presence.',
+    category: 'both',
+    priority: 2,
+    enabled: true,
+    ruleClass: LimitVenueTime,
+    parameters: {
+      maxHours: {
+        name: 'Maximum Hours at Venue',
+        type: 'number',
+        default: 5,
+        min: 1,
+        max: 12,
+        step: 0.5,
+        description: 'Maximum hours a player should be at the venue',
+      },
+      minutesPerSlot: {
+        name: 'Minutes per Time Slot',
+        type: 'number',
+        default: 40,
+        min: 15,
+        max: 120,
+        step: 15,
+        description: 'Duration of each time slot in minutes',
+      },
+    },
+  },
+
+  // ===== TEAM-SPECIFIC RULES =====
   {
     id: 'reffing_before',
     name: 'Avoid teams reffing before playing',
@@ -128,64 +156,28 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     priority: 2,
     enabled: true,
     ruleClass: EnsureFairFieldDistribution,
-  },
-  {
-    id: 'limit_team_venue_time',
-    name: 'Limit team venue time',
-    description: 'Prevents teams from spending too much consecutive time at the same venue/field.',
-    category: 'team',
-    priority: 2,
-    enabled: true,
-    ruleClass: LimitTeamVenueTime,
-  },
-
-  // ===== PLAYER RULES (Lower Priority) =====
-  {
-    id: 'player_back_to_back',
-    name: 'Avoid back-to-back games (Players)',
-    description: 'Prevents individual players from playing in consecutive time slots to avoid fatigue.',
-    category: 'player',
-    priority: 2,
-    enabled: true,
-    ruleClass: AvoidPlayerBackToBackGames,
-  },
-  {
-    id: 'limit_venue_time',
-    name: 'Limit player venue time',
-    description: 'Limits the total time players need to be at the venue from their first to last game.',
-    category: 'player',
-    priority: 2,
-    enabled: true,
-    ruleClass: LimitPlayerVenueTime,
     parameters: {
-      maxHours: {
-        name: 'Maximum Hours at Venue',
+      fieldDistributionThreshold: {
+        name: 'Field Distribution Threshold',
         type: 'number',
-        default: 5,
-        min: 1,
-        max: 12,
-        step: 0.5,
-        description: 'Maximum hours a player should be at the venue',
-      },
-      minutesPerSlot: {
-        name: 'Minutes per Time Slot',
-        type: 'number',
-        default: 40,
-        min: 15,
-        max: 120,
-        step: 15,
-        description: 'Duration of each time slot in minutes',
+        default: 0.6,
+        min: 0.3,
+        max: 1.0,
+        step: 0.1,
+        description: 'Maximum fraction of games a team can play on one field',
       },
     },
   },
+
+  // ===== PLAYER-SPECIFIC RULES =====
   {
-    id: 'player_rest_time',
-    name: 'Ensure player rest time',
-    description: 'Ensures players have adequate rest time between games (configurable minimum slots).',
+    id: 'manage_rest_and_gaps',
+    name: 'Manage rest time and gaps',
+    description: 'Ensures players have adequate rest between games while avoiding excessive gaps.',
     category: 'player',
     priority: 1,
     enabled: true,
-    ruleClass: EnsurePlayerRestTime,
+    ruleClass: ManageRestTimeAndGaps,
     parameters: {
       minRestSlots: {
         name: 'Minimum Rest Slots',
@@ -196,28 +188,8 @@ export const RULES_REGISTRY: RuleDefinition[] = [
         step: 1,
         description: 'Minimum number of time slots players must rest between games',
       },
-    },
-  },
-  {
-    id: 'player_first_last',
-    name: 'Avoid players having first and last game',
-    description: 'Prevents individual players from having to stay for the entire event duration.',
-    category: 'player',
-    priority: 1,
-    enabled: true,
-    ruleClass: AvoidPlayerFirstAndLastGame,
-  },
-  {
-    id: 'avoid_large_gaps',
-    name: 'Avoid large gaps between player games',
-    description: 'Prevents players from having long waiting periods between their games.',
-    category: 'player',
-    priority: 1,
-    enabled: true,
-    ruleClass: AvoidPlayerLargeGaps,
-    parameters: {
       maxGapSlots: {
-        name: 'Maximum Gap (slots)',
+        name: 'Maximum Gap Slots',
         type: 'number',
         default: 6,
         min: 2,
@@ -227,16 +199,14 @@ export const RULES_REGISTRY: RuleDefinition[] = [
       },
     },
   },
-
-  // ===== OPTIONAL RULES (Disabled by default) =====
   {
-    id: 'player_game_limit',
-    name: 'Limit player game count',
-    description: 'Limits the maximum number of games a player can be scheduled for in a single event.',
+    id: 'manage_player_game_balance',
+    name: 'Manage player game balance',
+    description: 'Limits individual player game counts and ensures fair distribution within divisions.',
     category: 'player',
     priority: 1,
-    enabled: false,
-    ruleClass: LimitPlayerGameCount,
+    enabled: true,
+    ruleClass: ManagePlayerGameBalance,
     parameters: {
       maxGames: {
         name: 'Maximum Games',
@@ -247,17 +217,6 @@ export const RULES_REGISTRY: RuleDefinition[] = [
         step: 1,
         description: 'Maximum number of games a player can play',
       },
-    },
-  },
-  {
-    id: 'balance_game_distribution',
-    name: 'Balance player game distribution',
-    description: 'Ensures fair distribution of games among players within each division.',
-    category: 'player',
-    priority: 1,
-    enabled: false,
-    ruleClass: BalancePlayerGameDistribution,
-    parameters: {
       maxGameDifference: {
         name: 'Max Game Difference',
         type: 'number',
@@ -269,6 +228,8 @@ export const RULES_REGISTRY: RuleDefinition[] = [
       },
     },
   },
+
+  // ===== OPTIONAL RULES (Disabled by default) =====
   {
     id: 'warmup_time',
     name: 'Ensure player warm-up time',
@@ -318,17 +279,17 @@ export function getRuleDefinition(id: string): RuleDefinition | undefined {
 }
 
 /**
- * Get all team rules
+ * Get all team rules (including those that apply to both)
  */
 export function getTeamRules(): RuleDefinition[] {
-  return RULES_REGISTRY.filter(rule => rule.category === 'team');
+  return RULES_REGISTRY.filter(rule => rule.category === 'team' || rule.category === 'both');
 }
 
 /**
- * Get all player rules
+ * Get all player rules (including those that apply to both)
  */
 export function getPlayerRules(): RuleDefinition[] {
-  return RULES_REGISTRY.filter(rule => rule.category === 'player');
+  return RULES_REGISTRY.filter(rule => rule.category === 'player' || rule.category === 'both');
 }
 
 /**
@@ -391,21 +352,136 @@ export function createRuleFromConfiguration(config: RuleConfigurationData): Sche
 }
 
 /**
- * Merge existing rule configurations with defaults, adding any new rules
+ * Migration mapping from old rule IDs to new rule IDs
+ */
+const RULE_MIGRATION_MAP: { [oldId: string]: string } = {
+  'player_back_to_back': 'back_to_back',
+  'player_first_last': 'first_last', 
+  'limit_team_venue_time': 'limit_venue_time',
+  'player_rest_time': 'manage_rest_and_gaps',
+  'avoid_large_gaps': 'manage_rest_and_gaps',
+  'player_game_limit': 'manage_player_game_balance',
+  'balance_game_distribution': 'manage_player_game_balance'
+};
+
+/**
+ * Migrate old rule configurations to new rule structure
+ */
+function migrateRuleConfigurations(configs: RuleConfigurationData[]): RuleConfigurationData[] {
+  const validRuleIds = new Set(RULES_REGISTRY.map(rule => rule.id));
+  const migratedConfigs: RuleConfigurationData[] = [];
+  const processedIds = new Set<string>();
+
+  console.log('🔄 Starting rule migration...');
+
+  for (const config of configs) {
+    // Skip if rule no longer exists and has no migration
+    if (!validRuleIds.has(config.id) && !RULE_MIGRATION_MAP[config.id]) {
+      console.log(`❌ Removing obsolete rule: ${config.id}`);
+      continue;
+    }
+
+    // Migrate if needed
+    if (RULE_MIGRATION_MAP[config.id]) {
+      const newId = RULE_MIGRATION_MAP[config.id];
+      
+      // Skip if we've already processed this new ID
+      if (processedIds.has(newId)) {
+        console.log(`⏭️ Skipping duplicate migration: ${config.id} -> ${newId}`);
+        continue;
+      }
+
+      const newRule = getRuleDefinition(newId);
+      if (newRule) {
+        console.log(`🔄 Migrating rule: ${config.id} -> ${newId} (${config.category} -> ${newRule.category})`);
+        migratedConfigs.push({
+          ...config,
+          id: newId,
+          name: newRule.name,
+          category: newRule.category,
+          // Merge parameters from old config if compatible
+          configuredParams: config.configuredParams
+        });
+        processedIds.add(newId);
+      }
+    } else if (validRuleIds.has(config.id)) {
+      // Keep existing valid rules but update their category to match registry
+      const ruleDefinition = getRuleDefinition(config.id);
+      if (ruleDefinition && ruleDefinition.category !== config.category) {
+        console.log(`🔄 Updating category for ${config.id}: ${config.category} -> ${ruleDefinition.category}`);
+      }
+      migratedConfigs.push({
+        ...config,
+        category: ruleDefinition?.category || config.category,
+        name: ruleDefinition?.name || config.name
+      });
+      processedIds.add(config.id);
+    }
+  }
+
+  console.log(`✅ Migration complete. Processed ${migratedConfigs.length} rules.`);
+  return migratedConfigs;
+}
+
+/**
+ * Clean up duplicate rules by removing exact duplicates based on ID
+ */
+function deduplicateRules(configs: RuleConfigurationData[]): RuleConfigurationData[] {
+  const seen = new Map<string, RuleConfigurationData>();
+  
+  for (const config of configs) {
+    if (!seen.has(config.id)) {
+      seen.set(config.id, config);
+    } else {
+      console.log(`🗑️ Removing duplicate rule: ${config.id}`);
+    }
+  }
+  
+  return Array.from(seen.values());
+}
+
+/**
+ * Merge existing rule configurations with defaults, adding any new rules and migrating old ones
  */
 export function mergeRuleConfigurations(existingConfigs: RuleConfigurationData[]): RuleConfigurationData[] {
+  console.log('🔄 Starting rule configuration merge...');
+  
+  // First migrate any old rule configurations
+  const migratedConfigs = migrateRuleConfigurations(existingConfigs);
+  
+  // Remove duplicates that might have been created during migration
+  const deduplicatedConfigs = deduplicateRules(migratedConfigs);
+  
   const defaultConfigs = getDefaultRuleConfigurations();
-  const existingIds = new Set(existingConfigs.map(config => config.id));
+  const existingIds = new Set(deduplicatedConfigs.map(config => config.id));
 
-  // Start with existing configurations
-  const mergedConfigs = [...existingConfigs];
+  // Start with deduplicated migrated configurations
+  const mergedConfigs = [...deduplicatedConfigs];
 
-  // Add any new default rules that don't exist in existing configs
+  // Add any new default rules that don't exist in migrated configs
   defaultConfigs.forEach(defaultConfig => {
     if (!existingIds.has(defaultConfig.id)) {
+      console.log(`➕ Adding new default rule: ${defaultConfig.id}`);
       mergedConfigs.push(defaultConfig);
     }
   });
 
+  console.log(`✅ Merge complete. Final rule count: ${mergedConfigs.length}`);
   return mergedConfigs;
+}
+
+/**
+ * Force cleanup of localStorage to remove duplicates and reset to clean state
+ * Call this function to manually fix duplicate rule issues
+ */
+export function cleanupDuplicateRules(): RuleConfigurationData[] {
+  console.log('🧹 Starting manual cleanup of duplicate rules...');
+  
+  // Get fresh defaults only
+  const defaultConfigs = getDefaultRuleConfigurations();
+  
+  console.log(`🗑️ Clearing existing rules and resetting to ${defaultConfigs.length} default rules`);
+  console.log('Rules reset:', defaultConfigs.map(r => r.id).join(', '));
+  
+  return defaultConfigs;
 }
