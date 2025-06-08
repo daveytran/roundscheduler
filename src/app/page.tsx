@@ -93,7 +93,31 @@ export default function Home() {
           setOptimizerSettings(savedData.optimizerSettings);
         }
 
-        setSchedule(savedData.schedule || null);
+        // Create proper Schedule instance to ensure methods are available
+        if (savedData.schedule || savedData.formattedMatches) {
+          // If we have a schedule with matches, create a proper Schedule instance
+          const matchesToUse = savedData.schedule?.matches || savedData.formattedMatches || [];
+          const newSchedule = new Schedule(matchesToUse);
+          
+          // Copy over important properties from the saved schedule if available
+          if (savedData.schedule) {
+            newSchedule.score = savedData.schedule.score || 0;
+            newSchedule.originalScore = savedData.schedule.originalScore;
+            
+            // If rules are available, re-evaluate violations with current rules
+            // This will initialize the violations array if it wasn't properly saved
+            const ruleInstances = mergedConfigurations
+              ? mergedConfigurations.map(createRuleFromConfiguration).filter(rule => rule !== null)
+              : defaultRuleConfigurations.map(createRuleFromConfiguration).filter(rule => rule !== null);
+              
+            newSchedule.evaluate(ruleInstances);
+          }
+          
+          setSchedule(newSchedule);
+        } else {
+          setSchedule(null);
+        }
+        
         setLastUpdated(savedData.lastUpdated);
         setDataLoadedFromStorage(true);
       }
@@ -177,9 +201,20 @@ export default function Home() {
     // Rules will be recreated from configuration when needed
   }, []);
 
-  const handleOptimizationComplete = (optimizedSchedule: any) => {
-    setSchedule(optimizedSchedule);
-    saveToLocalStorage({ schedule: optimizedSchedule });
+  const handleOptimizationComplete = (optimizedSchedule: Schedule) => {
+    // Make sure we're working with a proper Schedule instance
+    if (!(optimizedSchedule instanceof Schedule)) {
+      console.warn('Optimized schedule is not a proper Schedule instance, creating new instance');
+      const newSchedule = new Schedule(optimizedSchedule.matches);
+      newSchedule.score = optimizedSchedule.score || 0;
+      newSchedule.originalScore = optimizedSchedule.originalScore;
+      newSchedule.violations = optimizedSchedule.violations || [];
+      setSchedule(newSchedule);
+      saveToLocalStorage({ schedule: newSchedule });
+    } else {
+      setSchedule(optimizedSchedule);
+      saveToLocalStorage({ schedule: optimizedSchedule });
+    }
   };
 
   const handleClearStorage = () => {
