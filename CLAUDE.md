@@ -18,8 +18,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Code Style Guidelines
 
 - TypeScript with strict types throughout
-- **AVOID using `any` type** - use specific types, unions, or `unknown` instead
-- When dealing with uncertain types, use type narrowing with type guards
+- **AVOID using `any` type** - use specific types or unions instead
+- **AVOID using `unknown` type** except as a last resort for truly unpredictable data
+- When dealing with uncertain types, use precise union types and type narrowing with type guards
 - No semicolons, single quotes, 2-space indentation
 - PascalCase for components/classes/types, camelCase for variables/functions
 - Imports order: React/framework > utilities > models > components
