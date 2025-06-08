@@ -16,6 +16,7 @@
     "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "format:write": "prettier --write \"**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "deploy": "next build && next export",
+    "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

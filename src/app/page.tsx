@@ -106,8 +106,8 @@ export default function Home() {
             
             // If rules are available, re-evaluate violations with current rules
             // This will initialize the violations array if it wasn't properly saved
-            const ruleInstances = mergedConfigurations
-              ? mergedConfigurations.map(createRuleFromConfiguration).filter(rule => rule !== null)
+            const ruleInstances = ruleConfigurations
+              ? ruleConfigurations.map(createRuleFromConfiguration).filter(rule => rule !== null)
               : defaultRuleConfigurations.map(createRuleFromConfiguration).filter(rule => rule !== null);
               
             newSchedule.evaluate(ruleInstances);
