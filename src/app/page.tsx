@@ -33,7 +33,7 @@ import { RuleViolation } from '../models/RuleViolation';
 const defaultRuleConfigurations = getDefaultRuleConfigurations();
 
 const defaultOptimizerSettings: OptimizerSettings = {
-  iterations: 10000,
+  iterations: 50000,
   strategyId: 'simulated-annealing',
 };
 

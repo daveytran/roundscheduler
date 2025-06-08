@@ -1,7 +1,7 @@
 import { ScheduleHelpers } from '../lib/schedule-helpers'
 import { OptimizationProgressInfo } from '../lib/scheduler'
 import { Match } from './Match'
-import { RANDOM_OPTIMIZE, OptimizationStrategyInfo } from './OptimizationStrategy'
+import { SIMULATED_ANNEALING_OPTIMIZE, OptimizationStrategyInfo } from './OptimizationStrategy'
 import { RuleViolation } from './RuleViolation'
 import { ScheduleRule } from './ScheduleRule'
 
@@ -851,7 +851,7 @@ export class Schedule {
     const originalScore = this.score
     
     // Use provided strategy or default to simulated annealing
-    const optimizationStrategy = strategy?.optimize || RANDOM_OPTIMIZE
+    const optimizationStrategy = strategy?.optimize || SIMULATED_ANNEALING_OPTIMIZE
     
     // Create initial copies for optimization - ensuring we have separate instances with deep copied matches
     let currentSchedule = this.deepCopy()
@@ -916,6 +916,7 @@ export class Schedule {
       const optimizationResult = optimizationStrategy(
         { currentSchedule, currentScore: currentSchedule.score, bestScore, bestSchedule, storage },
         i,
+        iterations,
         rules
       )
 

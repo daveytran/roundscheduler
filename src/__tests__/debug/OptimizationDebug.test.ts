@@ -2,7 +2,7 @@ import { Schedule } from '../../models/Schedule';
 import { Match } from '../../models/Match';
 import { AvoidBackToBackGames, AvoidReffingBeforePlaying } from '../../models/ScheduleRule';
 import { createMockMatches, testScenarios } from '../../lib/testUtils';
-import { RANDOM_OPTIMIZE } from '../../models/OptimizationStrategy';
+import { SIMULATED_ANNEALING_OPTIMIZE } from '../../models/OptimizationStrategy';
 
 describe('Optimization Debug Tests', () => {
   // Helper function to create a schedule fingerprint for comparison

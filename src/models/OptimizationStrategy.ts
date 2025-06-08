@@ -20,11 +20,11 @@ type OptimizeResult<T> = {
   storage?: T | null
 }
 
-type Optimize<T> = (state: OptimizationState<T>, iteration: number, rules: ScheduleRule[]) => OptimizeResult<T>
+type Optimize<T> = (state: OptimizationState<T>, iteration: number, totalIterations: number, rules: ScheduleRule[]) => OptimizeResult<T>
 
 function createOptimize<T>(optimize: Optimize<T>) {
-  return (state: OptimizationState<T>, iteration: number, rules: ScheduleRule[]) => {
-    return optimize(state, iteration, rules)
+  return (state: OptimizationState<T>, iteration: number, totalIterations: number, rules: ScheduleRule[]) => {
+    return optimize(state, iteration, totalIterations, rules)
   }
 }
 
@@ -36,10 +36,14 @@ export interface OptimizationStrategyInfo {
   optimize: Optimize<any>
 }
 
-export const RANDOM_OPTIMIZE: Optimize<number> = (state, iteration, rules) => {
-  const coolingRate = 0.9985 // Slower cooling for better exploration
+export const SIMULATED_ANNEALING_OPTIMIZE: Optimize<number> = (state, iteration, totalIterations, rules) => {
+  // Calculate adaptive cooling rate based on total iterations
+  // Temperature should go from initial temp (150) to final temp (~0.1) over totalIterations
+  const initialTemp = 150
+  const finalTemp = 0.1
+  const coolingRate = Math.pow(finalTemp / initialTemp, 1 / totalIterations)
 
-  let temperature: number = state.storage ?? 150 // Higher initial temperature
+  let temperature: number = state.storage ?? initialTemp
   
   // Try to create a new candidate solution using targeted swaps or referee optimization
   let newSchedule: Schedule | null = null
@@ -200,8 +204,8 @@ export const OPTIMIZATION_STRATEGIES: OptimizationStrategyInfo[] = [
   {
     id: 'simulated-annealing',
     name: 'Simulated Annealing',
-    description: 'Classic optimization using random mutations with temperature-based acceptance. Good general-purpose approach.',
-    optimize: RANDOM_OPTIMIZE
+    description: 'Adaptive temperature-based optimization that explores the solution space intelligently. Temperature decreases proportionally to iterations for optimal convergence.',
+    optimize: SIMULATED_ANNEALING_OPTIMIZE
   },
 
 

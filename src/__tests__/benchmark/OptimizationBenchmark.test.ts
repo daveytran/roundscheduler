@@ -5,8 +5,7 @@ import { Player } from '../../models/Player'
 import { 
   OPTIMIZATION_STRATEGIES, 
   OptimizationStrategyInfo,
-  RANDOM_OPTIMIZE,
-  STRATEGIC_OPTIMIZE
+  SIMULATED_ANNEALING_OPTIMIZE
 } from '../../models/OptimizationStrategy'
 import { ScheduleRule, AvoidBackToBackGames, ManageRestTimeAndGaps } from '../../models/ScheduleRule'
 import { Division } from '../../models/Team'

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Schedule } from '../models/Schedule';
 import { Match } from '../models/Match';
 import { ScheduleRule } from '../models/ScheduleRule';
@@ -48,32 +48,44 @@ export default function ScheduleOptimizer({
   const [originalMatches, setOriginalMatches] = useState<Match[]>([]);
   const [currentOptimizedSchedule, setCurrentOptimizedSchedule] = useState<Schedule | null>(null);
 
+  // Throttling state for live updates
+  const [lastUIUpdate, setLastUIUpdate] = useState<number>(0);
+
   // Update original matches when matches prop changes
   useEffect(() => {
     if (matches && matches.length > 0) {
       setOriginalMatches(matches);
-      // Reset current optimized schedule when new matches are provided
-      setCurrentOptimizedSchedule(null);
-      setOriginalScore(null);
-      setCurrentScore(null);
-      setBestScore(null);
+      // Only reset scores if we have completely new matches (different count or content)
+      if (originalMatches.length !== matches.length) {
+        setCurrentOptimizedSchedule(null);
+        setOriginalScore(null);
+        setCurrentScore(null);
+        setBestScore(null);
+      }
     }
-  }, [matches]);
+  }, [matches, originalMatches.length]);
 
-  // Update settings when initialSettings change
+  // Track if settings were changed by user vs props to prevent feedback loop
+  const [userChangedSettings, setUserChangedSettings] = useState(false);
+
+  // Update settings when initialSettings change (but not if user made changes)
   useEffect(() => {
-    if (initialSettings) {
+    if (initialSettings && !userChangedSettings) {
       setIterations(initialSettings.iterations);
       setStrategyId(initialSettings.strategyId || 'simulated-annealing');
     }
-  }, [initialSettings]);
+  }, [initialSettings, userChangedSettings]);
 
-  // Save settings when iterations or strategy change
+  // Save settings when iterations or strategy change (debounced to prevent spam)
   useEffect(() => {
-    if (onSettingsChange) {
-      onSettingsChange({ iterations, strategyId });
+    if (onSettingsChange && userChangedSettings) {
+      const timeoutId = setTimeout(() => {
+        onSettingsChange({ iterations, strategyId });
+      }, 300); // 300ms debounce
+      
+      return () => clearTimeout(timeoutId);
     }
-  }, [iterations, strategyId, onSettingsChange]);
+  }, [iterations, strategyId, onSettingsChange, userChangedSettings]);
 
   const handleStartOptimization = async () => {
     try {
@@ -82,6 +94,8 @@ export default function ScheduleOptimizer({
       setProgress(0);
       setRenderedSchedule(null);
       setLastUpdateIteration(0);
+      setLastUIUpdate(0); // Reset throttling timer
+      setUserChangedSettings(false); // Reset user changes flag so future prop updates work
 
       if (!originalMatches || originalMatches.length === 0) {
         throw new Error('No matches to optimize');
@@ -99,9 +113,15 @@ export default function ScheduleOptimizer({
 
       // Determine starting point: use current optimized schedule if available, otherwise original matches
       let startingSchedule: Schedule;
+      let preservedOriginalScore = originalScore;
+      
       if (currentOptimizedSchedule) {
         // Continue optimization from the last optimized result
         startingSchedule = currentOptimizedSchedule.deepCopy();
+        // Preserve the original score from the previous optimization
+        if (currentOptimizedSchedule.originalScore !== undefined) {
+          preservedOriginalScore = currentOptimizedSchedule.originalScore;
+        }
         console.log(`🔄 Continuing optimization from previous result with score ${startingSchedule.score}`);
       } else {
         // Start optimization from original matches
@@ -114,8 +134,11 @@ export default function ScheduleOptimizer({
       const startingScore = startingSchedule.score;
       
       // Set original score only if this is the first optimization
-      if (originalScore === null) {
+      if (preservedOriginalScore === null) {
+        preservedOriginalScore = startingScore;
         setOriginalScore(startingScore);
+      } else {
+        setOriginalScore(preservedOriginalScore);
       }
       
       setCurrentScore(startingScore);
@@ -132,19 +155,45 @@ export default function ScheduleOptimizer({
 
       // Optimize the schedule (pass rules to optimize method)
       const optimized = await startingSchedule.optimize(rules, iterations, info => {
+        // Update progress and current score immediately (very lightweight)
         setProgress(info.progress);
-        setCurrentScore(info.currentScore);
-        setBestScore(info.bestScore);
+        setCurrentScore(info.currentScore); // Always update current score for responsiveness
 
-        // Update schedules for live visualization - show best schedule found so far
-        if (info.currentSchedule) {
-          setRenderedSchedule(info.currentSchedule);
-          setLastUpdateIteration(info.iteration);
+        // Always update scores on first few iterations to ensure they show
+        const isEarlyIteration = info.iteration <= 5;
+        
+        // Throttle visualization updates after initial iterations to prevent flashing
+        const now = Date.now();
+        const timeSinceLastUpdate = now - lastUIUpdate;
+        const isImprovement = bestScore !== null && info.bestScore < bestScore;
+        const isNearCompletion = info.progress >= 0.99;
+        
+        const shouldUpdate = isEarlyIteration || // Always update first few iterations
+                            timeSinceLastUpdate >= 300 || // Update at most every 300ms (reduced from 500ms)
+                            isImprovement || // Always update on improvement
+                            isNearCompletion; // Always update near completion
+
+        if (shouldUpdate) {
+          // Update best score and visualization
+          setBestScore(info.bestScore);
+          
+          // Update visualization
+          if (info.currentSchedule) {
+            setRenderedSchedule(info.currentSchedule);
+            setLastUpdateIteration(info.iteration);
+          }
+          
+          setLastUIUpdate(now);
         }
       }, selectedStrategy);
 
       // Final evaluation
       optimized.evaluate(rules);
+
+      // Ensure the optimized schedule has the correct originalScore
+      if (preservedOriginalScore !== null) {
+        optimized.originalScore = preservedOriginalScore;
+      }
 
       // Store the optimized schedule for future continuation
       setCurrentOptimizedSchedule(optimized);
@@ -178,6 +227,8 @@ export default function ScheduleOptimizer({
       if (onOptimizationComplete && originalMatches.length > 0) {
         const originalSchedule = new Schedule(originalMatches);
         originalSchedule.evaluate(rules);
+        // Clear any originalScore property since this is the original
+        originalSchedule.originalScore = undefined;
         onOptimizationComplete(originalSchedule);
       }
     }
@@ -206,7 +257,10 @@ export default function ScheduleOptimizer({
             <label className="block text-sm font-medium text-gray-700 mb-1">Optimization Strategy</label>
             <select
               value={strategyId}
-              onChange={e => setStrategyId(e.target.value)}
+              onChange={e => {
+                setStrategyId(e.target.value);
+                setUserChangedSettings(true);
+              }}
               className="w-48 p-2 border rounded"
               disabled={isOptimizing}
             >
@@ -223,7 +277,10 @@ export default function ScheduleOptimizer({
             <input
               type="number"
               value={iterations}
-              onChange={e => setIterations(parseInt(e.target.value))}
+              onChange={e => {
+                setIterations(parseInt(e.target.value) || 0);
+                setUserChangedSettings(true);
+              }}
               min="0"
               step="1000"
               className="w-32 p-2 border rounded"
@@ -300,7 +357,15 @@ export default function ScheduleOptimizer({
         {(originalScore !== null || currentScore !== null || bestScore !== null) && (
           <div className="p-3 bg-gray-50 border rounded">
             <h3 className="font-bold mb-2">Optimization Results</h3>
+            
+            {/* Debug info - remove in production */}
+            {process.env.NODE_ENV === 'development' && (
+              <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
+                <strong>Debug:</strong> Original: {originalScore}, Best: {bestScore}, Current: {currentScore}
+              </div>
+            )}
 
+            {/* Always show original score if available */}
             {originalScore !== null && (
               <div className="mb-2">
                 <p className="text-sm">
@@ -310,14 +375,34 @@ export default function ScheduleOptimizer({
               </div>
             )}
 
-            {bestScore !== null && originalScore !== null && (
+            {/* Show current score during optimization (before best score for logical flow) */}
+            {isOptimizing && currentScore !== null && (
+              <div className="mb-2">
+                <p className="text-sm text-blue-600">
+                  <span className="font-medium">Current Score:</span> {currentScore}
+                  {bestScore !== null && currentScore === bestScore && (
+                    <span className="ml-2 text-xs text-blue-500">(matches best)</span>
+                  )}
+                  {bestScore !== null && currentScore > bestScore && (
+                    <span className="ml-2 text-xs text-amber-600">(exploring)</span>
+                  )}
+                  {bestScore !== null && currentScore < bestScore && (
+                    <span className="ml-2 text-xs text-green-600">(improvement!)</span> 
+                  )}
+                </p>
+              </div>
+            )}
+
+            {/* Show best score independently */}
+            {bestScore !== null && (
               <div className="mb-2">
                 <p className="text-sm">
                   <span className="font-medium">Best Score:</span> {bestScore}
                   {bestScore === 0 ? ' 🎉 (Perfect schedule!)' : ''}
                 </p>
 
-                {originalScore !== bestScore && (
+                {/* Show improvement only if we have both scores */}
+                {originalScore !== null && originalScore !== bestScore && (
                   <div className="mt-1">
                     <p className="text-xs text-green-700 bg-green-50 px-2 py-1 rounded">
                       ✅ Improvement: {originalScore - bestScore} points (
@@ -326,7 +411,7 @@ export default function ScheduleOptimizer({
                   </div>
                 )}
 
-                {originalScore === bestScore && originalScore > 0 && (
+                {originalScore !== null && originalScore === bestScore && originalScore > 0 && (
                   <div className="mt-1">
                     <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded">
                       ⚠️ No improvement found - try more iterations or adjust rules
@@ -334,12 +419,6 @@ export default function ScheduleOptimizer({
                   </div>
                 )}
               </div>
-            )}
-
-            {isOptimizing && currentScore !== null && (
-              <p className="text-sm text-gray-600">
-                <span className="font-medium">Current Score:</span> {currentScore}
-              </p>
             )}
           </div>
         )}
@@ -373,10 +452,10 @@ export default function ScheduleOptimizer({
             <div className="text-sm space-y-1">
               <div className="flex items-center gap-2 text-gray-600">
                 <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                Last updated: Iteration {lastUpdateIteration}
+                Live update: Iteration {lastUpdateIteration}
               </div>
               {renderedSchedule && (
-                <div className={`px-2 py-1 rounded text-xs font-medium transition-all duration-300 ${
+                <div className={`px-2 py-1 rounded text-xs font-medium ${
                   renderedSchedule.score === 0 
                     ? 'bg-green-100 text-green-800' 
                     : 'bg-amber-100 text-amber-800'
