@@ -122,7 +122,7 @@ export default function Home() {
         setDataLoadedFromStorage(true);
       }
     }
-  }, []);
+  }, [ruleConfigurations]);
 
   const handlePlayersImport = (importedPlayers: Player[], importedTeams: TeamsMap) => {
     setPlayers(importedPlayers);
@@ -201,14 +201,20 @@ export default function Home() {
     // Rules will be recreated from configuration when needed
   }, []);
 
-  const handleOptimizationComplete = (optimizedSchedule: Schedule) => {
+  const handleOptimizationComplete = (optimizedSchedule: Schedule | any) => {
     // Make sure we're working with a proper Schedule instance
     if (!(optimizedSchedule instanceof Schedule)) {
       console.warn('Optimized schedule is not a proper Schedule instance, creating new instance');
-      const newSchedule = new Schedule(optimizedSchedule.matches);
-      newSchedule.score = optimizedSchedule.score || 0;
-      newSchedule.originalScore = optimizedSchedule.originalScore;
-      newSchedule.violations = optimizedSchedule.violations || [];
+      const matchesToUse = Array.isArray(optimizedSchedule?.matches) ? optimizedSchedule.matches : [];
+      const newSchedule = new Schedule(matchesToUse);
+      
+      // Safely copy properties
+      newSchedule.score = typeof optimizedSchedule?.score === 'number' ? optimizedSchedule.score : 0;
+      if (optimizedSchedule?.originalScore !== undefined) {
+        newSchedule.originalScore = optimizedSchedule.originalScore;
+      }
+      newSchedule.violations = Array.isArray(optimizedSchedule?.violations) ? optimizedSchedule.violations : [];
+      
       setSchedule(newSchedule);
       saveToLocalStorage({ schedule: newSchedule });
     } else {
