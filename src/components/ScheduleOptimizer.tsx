@@ -43,6 +43,22 @@ export default function ScheduleOptimizer({
   const [renderedSchedule, setRenderedSchedule] = useState<Schedule | null>(null);
   const [showLiveVisualization, setShowLiveVisualization] = useState(true);
   const [lastUpdateIteration, setLastUpdateIteration] = useState<number>(0);
+  
+  // New state for tracking original matches and current optimized schedule
+  const [originalMatches, setOriginalMatches] = useState<Match[]>([]);
+  const [currentOptimizedSchedule, setCurrentOptimizedSchedule] = useState<Schedule | null>(null);
+
+  // Update original matches when matches prop changes
+  useEffect(() => {
+    if (matches && matches.length > 0) {
+      setOriginalMatches(matches);
+      // Reset current optimized schedule when new matches are provided
+      setCurrentOptimizedSchedule(null);
+      setOriginalScore(null);
+      setCurrentScore(null);
+      setBestScore(null);
+    }
+  }, [matches]);
 
   // Update settings when initialSettings change
   useEffect(() => {
@@ -64,13 +80,10 @@ export default function ScheduleOptimizer({
       setError(null);
       setIsOptimizing(true);
       setProgress(0);
-      setOriginalScore(null);
-      setCurrentScore(null);
-      setBestScore(null);
       setRenderedSchedule(null);
       setLastUpdateIteration(0);
 
-      if (!matches || matches.length === 0) {
+      if (!originalMatches || originalMatches.length === 0) {
         throw new Error('No matches to optimize');
       }
 
@@ -84,39 +97,57 @@ export default function ScheduleOptimizer({
         throw new Error('Some rules are not properly initialized. Please visit the Rules tab first to configure them.');
       }
 
-      // Create a new schedule with the provided matches (no rules in constructor)
-      const schedule = new Schedule(matches);
+      // Determine starting point: use current optimized schedule if available, otherwise original matches
+      let startingSchedule: Schedule;
+      if (currentOptimizedSchedule) {
+        // Continue optimization from the last optimized result
+        startingSchedule = currentOptimizedSchedule.deepCopy();
+        console.log(`🔄 Continuing optimization from previous result with score ${startingSchedule.score}`);
+      } else {
+        // Start optimization from original matches
+        startingSchedule = new Schedule(originalMatches);
+        console.log(`🚀 Starting optimization from original matches`);
+      }
 
-      // Initial evaluation to get the original score
-      schedule.evaluate(rules); // Pass rules to evaluate method
-      const originalScheduleScore = schedule.score;
+      // Initial evaluation to get the starting score
+      startingSchedule.evaluate(rules);
+      const startingScore = startingSchedule.score;
       
-      console.log(`🚀 Starting optimization: ${matches.length} matches, ${rules.length} rules, score ${originalScheduleScore}`);
+      // Set original score only if this is the first optimization
+      if (originalScore === null) {
+        setOriginalScore(startingScore);
+      }
       
-      setOriginalScore(originalScheduleScore);
-      setCurrentScore(originalScheduleScore);
-      setBestScore(originalScheduleScore);
+      setCurrentScore(startingScore);
+      setBestScore(startingScore);
+      
+      console.log(`Starting optimization: ${originalMatches.length} matches, ${rules.length} rules, starting score ${startingScore}`);
       
       // Set initial schedule for visualization
-      setRenderedSchedule(schedule.deepCopy());
+      setRenderedSchedule(startingSchedule.deepCopy());
       setLastUpdateIteration(0);
 
       // Find the selected optimization strategy
       const selectedStrategy = OPTIMIZATION_STRATEGIES.find(s => s.id === strategyId);
 
       // Optimize the schedule (pass rules to optimize method)
-      const optimized = await schedule.optimize(rules, iterations, info => {
+      const optimized = await startingSchedule.optimize(rules, iterations, info => {
         setProgress(info.progress);
         setCurrentScore(info.currentScore);
         setBestScore(info.bestScore);
 
         // Update schedules for live visualization - show best schedule found so far
-        info.currentSchedule&& setRenderedSchedule(info.currentSchedule);
+        if (info.currentSchedule) {
+          setRenderedSchedule(info.currentSchedule);
           setLastUpdateIteration(info.iteration);
+        }
       }, selectedStrategy);
 
       // Final evaluation
       optimized.evaluate(rules);
+
+      // Store the optimized schedule for future continuation
+      setCurrentOptimizedSchedule(optimized);
 
       // Clear live preview now that optimization is complete
       setRenderedSchedule(null);
@@ -133,13 +164,41 @@ export default function ScheduleOptimizer({
     }
   };
 
+  const handleResetToOriginal = () => {
+    if (window.confirm('Are you sure you want to reset to the original schedule? This will lose your current optimization progress.')) {
+      setCurrentOptimizedSchedule(null);
+      setOriginalScore(null);
+      setCurrentScore(null);
+      setBestScore(null);
+      setRenderedSchedule(null);
+      setError(null);
+      console.log('🔄 Reset to original schedule');
+      
+      // Notify parent component with original schedule
+      if (onOptimizationComplete && originalMatches.length > 0) {
+        const originalSchedule = new Schedule(originalMatches);
+        originalSchedule.evaluate(rules);
+        onOptimizationComplete(originalSchedule);
+      }
+    }
+  };
+
+
+
+  const hasOptimizedSchedule = currentOptimizedSchedule !== null;
+  const isStartingFromOptimized = hasOptimizedSchedule && !isOptimizing;
+
   return (
     <div className="p-4 bg-white rounded shadow">
       <h2 className="text-xl font-bold mb-4">Schedule Optimizer</h2>
 
       <div className="mb-4">
         <p className="text-sm text-gray-600 mb-2">
-          The optimizer will attempt to minimize rule violations using different strategies. Choose a strategy that best fits your needs and adjust iterations for better results.
+          The optimizer will attempt to minimize rule violations using different strategies. 
+          {isStartingFromOptimized 
+            ? ' Continue optimizing from your current result, or reset to start over.'
+            : ' Choose a strategy that best fits your needs and adjust iterations for better results.'
+          }
         </p>
 
         <div className="flex items-center gap-4 mb-4">
@@ -172,14 +231,46 @@ export default function ScheduleOptimizer({
             />
           </div>
 
-          <button
-            onClick={handleStartOptimization}
-            disabled={isOptimizing || !matches || matches.length === 0 || !rules || rules.length === 0}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-300"
-          >
-            {isOptimizing ? 'Optimizing...' : 'Start Optimization'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleStartOptimization}
+              disabled={isOptimizing || !originalMatches || originalMatches.length === 0 || !rules || rules.length === 0}
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-300"
+            >
+              {isOptimizing 
+                ? 'Optimizing...' 
+                : isStartingFromOptimized 
+                  ? 'Continue Optimization' 
+                  : 'Start Optimization'
+              }
+            </button>
+
+            {hasOptimizedSchedule && !isOptimizing && (
+              <button
+                onClick={handleResetToOriginal}
+                className="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600"
+                title="Reset to the original unoptimized schedule"
+              >
+                🔄 Reset to Original
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Status message for current state */}
+        {isStartingFromOptimized && !isOptimizing && (
+          <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded">
+            <div className="flex items-center gap-2">
+              <span className="text-blue-600">🎯</span>
+              <span className="text-sm text-blue-800 font-medium">
+                Ready to continue from optimized schedule (Score: {currentOptimizedSchedule?.score})
+              </span>
+            </div>
+            <p className="text-xs text-blue-700 mt-1">
+              Next optimization will start from your current results, not the original schedule.
+            </p>
+          </div>
+        )}
 
         {/* Strategy Description */}
         {(() => {

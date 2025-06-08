@@ -41,7 +41,7 @@ export const RANDOM_OPTIMIZE: Optimize<number> = (state, iteration, rules) => {
 
   let temperature: number = state.storage ?? 150 // Higher initial temperature
   
-  // Try to create a new candidate solution using targeted swaps
+  // Try to create a new candidate solution using targeted swaps or referee optimization
   let newSchedule: Schedule | null = null
   let attempts = 0
   const maxAttempts = 5 // Limit attempts to avoid infinite loops
@@ -49,8 +49,13 @@ export const RANDOM_OPTIMIZE: Optimize<number> = (state, iteration, rules) => {
   while (newSchedule === null && attempts < maxAttempts) {
     attempts++
     
-    // Randomly choose between swapMatches (70%) and swapTimeSlots (30%)
-    const useSwapMatches = Math.random() < 0.7
+    // Randomly choose between different optimization approaches:
+    // - swapMatches (60%)
+    // - swapTimeSlots (25%) 
+    // - generateReferees (15%)
+    const randomChoice = Math.random()
+    const useSwapMatches = randomChoice < 0.6
+    const useRefereeGeneration = randomChoice >= 0.85
 
     if (useSwapMatches) {
       // Get all non-locked, non-special matches that can be swapped
@@ -78,6 +83,19 @@ export const RANDOM_OPTIMIZE: Optimize<number> = (state, iteration, rules) => {
           const success = newSchedule !== null
           console.log(`🔄 SwapMatches attempt ${attempts}: ${match1.team1.name} vs ${match1.team2.name} (slot ${match1.timeSlot}) ↔ ${match2.team1.name} vs ${match2.team2.name} (slot ${match2.timeSlot}) - ${success ? 'Success' : 'Failed'}`)
         }
+      }
+    } else if (useRefereeGeneration) {
+      // Generate new referee assignments
+      newSchedule = state.currentSchedule.deepCopy()
+      const success = newSchedule.generateRefereeAssignments(false) // verbose = false to avoid spam
+      
+      if (!success) {
+        newSchedule = null // Mark as failed if referee generation didn't work
+      }
+      
+      // Debug: Log referee generation attempts occasionally
+      if (Math.random() < 0.01) {
+        console.log(`👥 RefereeGeneration attempt ${attempts}: ${success ? 'Success' : 'Failed'}`)
       }
     } else {
       // Get all unique time slots that have non-locked, non-special matches

@@ -463,6 +463,166 @@ export class Schedule {
   }
 
   /**
+   * Generate referee assignments randomly based on teams playing that day
+   * Ensures teams don't referee their own matches and handles time slot conflicts
+   * @param {boolean} verbose - Whether to log verbose output
+   * @returns {boolean} True if successful, false if not enough teams available
+   */
+  generateRefereeAssignments(verbose: boolean = false): boolean {
+    if (verbose) {
+      console.log(`🎯 Generating referee assignments for ${this.matches.length} matches`)
+    }
+
+    // Get all unique teams from all matches (playing teams)
+    const allTeams = new Set<string>()
+    this.matches.forEach(match => {
+      if (!match.isSpecialActivity()) {
+        allTeams.add(match.team1.name)
+        allTeams.add(match.team2.name)
+      }
+    })
+
+    const teamList = Array.from(allTeams)
+    if (verbose) {
+      console.log(`📋 Found ${teamList.length} teams: ${teamList.join(', ')}`)
+    }
+
+    // Check if we have enough teams (need at least 3 teams to have referees)
+    if (teamList.length < 3) {
+      if (verbose) {
+        console.warn(`⚠️ Not enough teams (${teamList.length}) to assign referees (need at least 3)`)
+      }
+      return false
+    }
+
+    // Reset all referee assignments first
+    this.matches.forEach(match => {
+      if (!match.isSpecialActivity()) {
+        match.refereeTeam = null
+      }
+    })
+
+    // Group matches by time slot to handle conflicts
+    const matchesByTimeSlot: Record<number, Match[]> = {}
+    this.matches.forEach(match => {
+      if (!match.isSpecialActivity()) {
+        if (!matchesByTimeSlot[match.timeSlot]) {
+          matchesByTimeSlot[match.timeSlot] = []
+        }
+        matchesByTimeSlot[match.timeSlot].push(match)
+      }
+    })
+
+    // Track referee assignments for fair distribution
+    const refereeAssignmentCount: Record<string, number> = {}
+    teamList.forEach(team => {
+      refereeAssignmentCount[team] = 0
+    })
+
+    // Process each time slot
+    const timeSlots = Object.keys(matchesByTimeSlot)
+      .map(Number)
+      .sort((a, b) => a - b)
+
+    for (const timeSlot of timeSlots) {
+      const timeSlotMatches = matchesByTimeSlot[timeSlot]
+      if (!timeSlotMatches || timeSlotMatches.length === 0) {
+        continue
+      }
+
+      if (verbose) {
+        console.log(`🕐 Processing time slot ${timeSlot} with ${timeSlotMatches.length} matches`)
+      }
+
+      // Get teams playing in this time slot
+      const playingTeamsThisSlot = new Set<string>()
+      timeSlotMatches.forEach(match => {
+        playingTeamsThisSlot.add(match.team1.name)
+        playingTeamsThisSlot.add(match.team2.name)
+      })
+
+      // Get available referee teams (not playing in this time slot)
+      const availableRefereeTeams = teamList.filter(team => !playingTeamsThisSlot.has(team))
+
+      if (verbose) {
+        console.log(`  👥 Playing teams: ${Array.from(playingTeamsThisSlot).join(', ')}`)
+        console.log(`  🎯 Available referees: ${availableRefereeTeams.join(', ')}`)
+      }
+
+      // Check if we have enough referees for this time slot
+      if (availableRefereeTeams.length < timeSlotMatches.length) {
+        if (verbose) {
+          console.warn(`  ⚠️ Not enough referees (${availableRefereeTeams.length}) for matches (${timeSlotMatches.length}) in time slot ${timeSlot}`)
+        }
+        // Continue with what we have - some matches may not get referees
+      }
+
+      // Sort available referees by assignment count (least assigned first) for fair distribution
+      const sortedReferees = [...availableRefereeTeams].sort((a, b) => 
+        refereeAssignmentCount[a] - refereeAssignmentCount[b]
+      )
+
+      // Assign referees to matches in this time slot
+      timeSlotMatches.forEach((match, index) => {
+        if (index < sortedReferees.length) {
+          const refereeTeam = sortedReferees[index]
+          
+          // Find the team object (we need the full team object, not just the name)
+          const refereeTeamObject = match.team1.name === refereeTeam ? match.team1 :
+                                   match.team2.name === refereeTeam ? match.team2 :
+                                   // Look for the team in other matches
+                                   this.matches.find(m => 
+                                     m.team1.name === refereeTeam || m.team2.name === refereeTeam
+                                   )?.team1.name === refereeTeam ? 
+                                   this.matches.find(m => 
+                                     m.team1.name === refereeTeam || m.team2.name === refereeTeam
+                                   )!.team1 :
+                                   this.matches.find(m => 
+                                     m.team1.name === refereeTeam || m.team2.name === refereeTeam
+                                   )!.team2
+
+          if (refereeTeamObject) {
+            match.refereeTeam = refereeTeamObject
+            refereeAssignmentCount[refereeTeam]++
+            
+            if (verbose) {
+              console.log(`    ✅ Assigned ${refereeTeam} to referee ${match.team1.name} vs ${match.team2.name}`)
+            }
+          } else {
+            if (verbose) {
+              console.warn(`    ❌ Could not find team object for referee ${refereeTeam}`)
+            }
+          }
+        } else {
+          if (verbose) {
+            console.log(`    ⏭️ No referee available for ${match.team1.name} vs ${match.team2.name}`)
+          }
+        }
+      })
+    }
+
+    // Calculate statistics
+    const totalAssignments = Object.values(refereeAssignmentCount).reduce((sum, count) => sum + count, 0)
+    const matchesWithReferees = this.matches.filter(m => !m.isSpecialActivity() && m.refereeTeam).length
+    const totalRegularMatches = this.matches.filter(m => !m.isSpecialActivity()).length
+
+    if (verbose) {
+      console.log(`📊 Referee assignment complete:`)
+      console.log(`  ✅ ${matchesWithReferees}/${totalRegularMatches} matches have referees (${Math.round(matchesWithReferees/totalRegularMatches*100)}%)`)
+      console.log(`  📈 Total assignments: ${totalAssignments}`)
+      console.log(`  📋 Assignments per team:`)
+      
+      // Sort teams by assignment count for display
+      const sortedTeams = teamList.sort((a, b) => refereeAssignmentCount[b] - refereeAssignmentCount[a])
+      sortedTeams.forEach(team => {
+        console.log(`    ${team}: ${refereeAssignmentCount[team]} assignments`)
+      })
+    }
+
+    return matchesWithReferees > 0
+  }
+
+  /**
    * Shuffle referee assignments within a division while ensuring teams don't referee themselves
    * and that referees aren't assigned to multiple matches in the same time slot
    * @param {Match[]} matches - Matches within a division to shuffle referees for
