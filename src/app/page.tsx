@@ -201,19 +201,27 @@ export default function Home() {
     // Rules will be recreated from configuration when needed
   }, []);
 
-  const handleOptimizationComplete = (optimizedSchedule: Schedule | any) => {
+  // Define a type for the schedule-like object that might be passed in
+  type ScheduleLike = {
+    matches?: Match[];
+    score?: number;
+    originalScore?: number;
+    violations?: RuleViolation[];
+  };
+  
+  const handleOptimizationComplete = (optimizedSchedule: Schedule | ScheduleLike) => {
     // Make sure we're working with a proper Schedule instance
     if (!(optimizedSchedule instanceof Schedule)) {
       console.warn('Optimized schedule is not a proper Schedule instance, creating new instance');
-      const matchesToUse = Array.isArray(optimizedSchedule?.matches) ? optimizedSchedule.matches : [];
+      const matchesToUse = Array.isArray(optimizedSchedule.matches) ? optimizedSchedule.matches : [];
       const newSchedule = new Schedule(matchesToUse);
       
       // Safely copy properties
-      newSchedule.score = typeof optimizedSchedule?.score === 'number' ? optimizedSchedule.score : 0;
-      if (optimizedSchedule?.originalScore !== undefined) {
+      newSchedule.score = typeof optimizedSchedule.score === 'number' ? optimizedSchedule.score : 0;
+      if (optimizedSchedule.originalScore !== undefined) {
         newSchedule.originalScore = optimizedSchedule.originalScore;
       }
-      newSchedule.violations = Array.isArray(optimizedSchedule?.violations) ? optimizedSchedule.violations : [];
+      newSchedule.violations = Array.isArray(optimizedSchedule.violations) ? optimizedSchedule.violations : [];
       
       setSchedule(newSchedule);
       saveToLocalStorage({ schedule: newSchedule });
