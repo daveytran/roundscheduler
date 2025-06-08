@@ -27,6 +27,7 @@ import {
   cleanupDuplicateRules,
 } from '../lib/rules-registry';
 import { Schedule } from '../models/Schedule';
+import { RuleViolation } from '../models/RuleViolation';
 
 // Get default rule configurations from centralized registry
 const defaultRuleConfigurations = getDefaultRuleConfigurations();
