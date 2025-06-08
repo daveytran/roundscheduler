@@ -953,6 +953,135 @@ export class EnsureFairFieldDistribution extends ScheduleRule {
   }
 }
 
+/**
+ * Rule to detect multiple distinct divisions scheduled in the same time slot
+ */
+export class DetectMixedDivisionsInTimeSlot extends ScheduleRule {
+  name
+  constructor(priority = 2) {
+    super(priority)
+    this.name = 'Detect mixed divisions in time slot'
+  }
 
+  evaluate(schedule: Schedule, violations: RuleViolation[]) {
+    const matches = [...schedule.matches].filter(match => !match.isSpecialActivity())
+    
+    // Group matches by time slot
+    const matchesByTimeSlot: Record<number, Match[]> = {}
+    matches.forEach(match => {
+      if (!matchesByTimeSlot[match.timeSlot]) {
+        matchesByTimeSlot[match.timeSlot] = []
+      }
+      matchesByTimeSlot[match.timeSlot].push(match)
+    })
+
+    // Check each time slot for multiple divisions
+    Object.entries(matchesByTimeSlot).forEach(([timeSlotStr, timeSlotMatches]) => {
+      const timeSlot = parseInt(timeSlotStr)
+      
+      // Get all unique divisions in this time slot
+      const divisionsInSlot = new Set<string>()
+      timeSlotMatches.forEach(match => {
+        if (match.division) {
+          divisionsInSlot.add(match.division)
+        }
+      })
+
+      // If more than one division in this slot, create a violation
+      if (divisionsInSlot.size > 1) {
+        const divisionsArray = Array.from(divisionsInSlot)
+        
+        violations.push({
+          rule: this.name,
+          description: `Time slot ${timeSlot} has multiple divisions: ${divisionsArray.join(', ')}`,
+          matches: timeSlotMatches,
+          level: 'warning',
+        })
+      }
+    })
+
+    return violations
+  }
+}
+
+/**
+ * Rule to detect teams refereeing in the same slot where one of their club's teams is playing
+ * This helps avoid conflicts of interest where teams are refereeing matches involving teams from the same club
+ */
+export class PreventClubRefereeConflict extends ScheduleRule {
+  name
+  constructor(priority = 3) {
+    super(priority)
+    this.name = 'Prevent club referee conflict'
+  }
+
+  evaluate(schedule: Schedule, violations: RuleViolation[]) {
+    const matches = [...schedule.matches].filter(match => !match.isSpecialActivity())
+    
+    // Group matches by time slot
+    const matchesByTimeSlot: Record<number, Match[]> = {}
+    matches.forEach(match => {
+      if (!matchesByTimeSlot[match.timeSlot]) {
+        matchesByTimeSlot[match.timeSlot] = []
+      }
+      matchesByTimeSlot[match.timeSlot].push(match)
+    })
+
+    // For each time slot, check for teams from the same club playing and refereeing
+    Object.entries(matchesByTimeSlot).forEach(([timeSlotStr, timeSlotMatches]) => {
+      const timeSlot = parseInt(timeSlotStr)
+      
+      // Skip time slots with only one match (no possibility of conflict)
+      if (timeSlotMatches.length <= 1) return;
+      
+      // For each match with a referee assigned
+      timeSlotMatches.forEach(match => {
+        if (!match.refereeTeam) return;
+        
+        const refereeTeamName = match.refereeTeam.name;
+        // Get the club name from the referee team name (assuming format like "ClubName TeamName")
+        const refereeClub = this.extractClubName(refereeTeamName);
+        
+        // Check other matches in the same time slot
+        const otherMatches = timeSlotMatches.filter(m => m !== match);
+        
+        for (const otherMatch of otherMatches) {
+          const team1Club = this.extractClubName(otherMatch.team1.name);
+          const team2Club = this.extractClubName(otherMatch.team2.name);
+          
+          // Check if the referee's club has a team playing in another match
+          if (refereeClub && (refereeClub === team1Club || refereeClub === team2Club)) {
+            violations.push({
+              rule: this.name,
+              description: `Team ${refereeTeamName} is refereeing in slot ${timeSlot} while club team (${team1Club === refereeClub ? otherMatch.team1.name : otherMatch.team2.name}) is playing in the same slot`,
+              matches: [match, otherMatch],
+              level: 'warning',
+            });
+          }
+        }
+      });
+    })
+
+    return violations
+  }
+  
+  /**
+   * Extract the club name from a team name
+   * This is a simple implementation that assumes the club name is the first word
+   * in the team name. For more complex naming patterns, this would need to be customized.
+   */
+  private extractClubName(teamName: string): string | null {
+    if (!teamName) return null;
+    
+    // Simple implementation: assume first word is the club name
+    // Alternative: use a mapping or configuration if naming patterns are more complex
+    const parts = teamName.trim().split(' ');
+    if (parts.length > 1) {
+      return parts[0]; // Return first word as club name
+    }
+    
+    return teamName; // If only one word, return the whole name
+  }
+}
 
 

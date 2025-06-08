@@ -12,6 +12,8 @@ import {
   CustomRule as CustomRuleClass,
   PreventTeamDoubleBooking,
   ScheduleRule,
+  DetectMixedDivisionsInTimeSlot,
+  PreventClubRefereeConflict,
 } from '../models/ScheduleRule';
 import { ScheduleHelpers } from './schedule-helpers';
 import { RuleConfigurationData } from './localStorage';
@@ -249,6 +251,26 @@ export const RULES_REGISTRY: RuleDefinition[] = [
         description: 'Minimum time slots before first game for warm-up',
       },
     },
+  },
+  
+  // ===== NEW RULES =====
+  {
+    id: 'mixed_divisions_timeslot',
+    name: 'Detect mixed divisions in time slot',
+    description: 'Detects when multiple distinct divisions (mixed/gendered/cloth) are scheduled in the same time slot, which may be undesirable for organization or planning purposes.',
+    category: 'both',
+    priority: 2,
+    enabled: true,
+    ruleClass: DetectMixedDivisionsInTimeSlot,
+  },
+  {
+    id: 'club_referee_conflict',
+    name: 'Prevent club referee conflict',
+    description: 'Prevents teams from refereeing in time slots where another team from the same club is playing, avoiding potential conflicts of interest.',
+    category: 'team',
+    priority: 3,
+    enabled: true,
+    ruleClass: PreventClubRefereeConflict,
   },
 ];
 
