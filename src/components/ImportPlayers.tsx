@@ -248,38 +248,41 @@ Sun Valley Storm		Hoxton Park Hedgehogs	Ahmed Chatila	M"
         <div>
           <h3 className="font-bold mb-2">Imported {players.length} Players</h3>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="bg-gray-100">
-                  <th className="p-2 text-left border">Player Name</th>
-                  <th className="p-2 text-left border">Mixed Team</th>
-                  <th className="p-2 text-left border">Gendered Team</th>
-                  <th className="p-2 text-left border">Cloth Team</th>
-                </tr>
-              </thead>
-              <tbody>
-                {players.map((player, index) => (
-                  <tr key={index} className="border-b">
-                    <td className="p-2 border">{player.name}</td>
-                    <td className="p-2 border">{player.mixedTeam || '-'}</td>
-                    <td className="p-2 border">{player.genderedTeam || '-'}</td>
-                    <td className="p-2 border">{player.clothTeam || '-'}</td>
+          {/* Players Table in scrollable container */}
+          <div className="overflow-x-auto border border-gray-200 rounded">
+            <div className="max-h-[400px] overflow-y-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead className="sticky top-0 bg-gray-100 z-10">
+                  <tr>
+                    <th className="p-2 text-left border">Player Name</th>
+                    <th className="p-2 text-left border">Mixed Team</th>
+                    <th className="p-2 text-left border">Gendered Team</th>
+                    <th className="p-2 text-left border">Cloth Team</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {players.map((player, index) => (
+                    <tr key={index} className="border-b">
+                      <td className="p-2 border">{player.name}</td>
+                      <td className="p-2 border">{player.mixedTeam || '-'}</td>
+                      <td className="p-2 border">{player.genderedTeam || '-'}</td>
+                      <td className="p-2 border">{player.clothTeam || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {teams && (
             <div className="mt-4">
               <h3 className="font-bold mb-2">Teams Summary</h3>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[300px] overflow-y-auto border border-gray-200 rounded p-4">
                 <div>
-                  <h4 className="font-semibold">Mixed Division</h4>
-                  <ul className="list-disc pl-5">
+                  <h4 className="font-semibold sticky top-0 bg-white py-1">Mixed Division</h4>
+                  <ul className="list-disc pl-5 mt-2">
                     {Object.keys(teams.mixed).map(teamName => (
-                      <li key={teamName}>
+                      <li key={teamName} className="mb-1">
                         {teamName} ({teams.mixed[teamName].players.length} players)
                       </li>
                     ))}
@@ -287,10 +290,10 @@ Sun Valley Storm		Hoxton Park Hedgehogs	Ahmed Chatila	M"
                 </div>
 
                 <div>
-                  <h4 className="font-semibold">Gendered Division</h4>
-                  <ul className="list-disc pl-5">
+                  <h4 className="font-semibold sticky top-0 bg-white py-1">Gendered Division</h4>
+                  <ul className="list-disc pl-5 mt-2">
                     {Object.keys(teams.gendered).map(teamName => (
-                      <li key={teamName}>
+                      <li key={teamName} className="mb-1">
                         {teamName} ({teams.gendered[teamName].players.length} players)
                       </li>
                     ))}
@@ -298,10 +301,10 @@ Sun Valley Storm		Hoxton Park Hedgehogs	Ahmed Chatila	M"
                 </div>
 
                 <div>
-                  <h4 className="font-semibold">Cloth Division</h4>
-                  <ul className="list-disc pl-5">
+                  <h4 className="font-semibold sticky top-0 bg-white py-1">Cloth Division</h4>
+                  <ul className="list-disc pl-5 mt-2">
                     {Object.keys(teams.cloth).map(teamName => (
-                      <li key={teamName}>
+                      <li key={teamName} className="mb-1">
                         {teamName} ({teams.cloth[teamName].players.length} players)
                       </li>
                     ))}
