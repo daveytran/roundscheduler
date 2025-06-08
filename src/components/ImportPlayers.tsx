@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { ReactSpreadsheetImport } from 'react-spreadsheet-import';
 import { Player } from '../models/Player';
 import { Team, TeamsMap } from '../models/Team';
+import SimpleFileImport from './SimpleFileImport';
 
 interface ImportPlayersProps {
   onImportComplete?: (players: Player[], teams: TeamsMap) => void;
@@ -20,16 +20,6 @@ export default function ImportPlayers({ onImportComplete }: ImportPlayersProps) 
   const [teams, setTeams] = useState<TeamsMap | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showResults, setShowResults] = useState<boolean>(false);
-  const [isImportOpen, setIsImportOpen] = useState<boolean>(false);
-  const [pastedData, setPastedData] = useState<string>('');
-
-  const fields = [
-    { label: 'Player Name', key: 'name', fieldType: { type: 'input' } },
-    { label: 'Gender', key: 'gender', fieldType: { type: 'input' }, optional: true },
-    { label: 'Mixed Division Club', key: 'mixedClub', fieldType: { type: 'input' }, optional: true },
-    { label: 'Gendered Division Club', key: 'genderedClub', fieldType: { type: 'input' }, optional: true },
-    { label: 'Cloth Division Club', key: 'clothClub', fieldType: { type: 'input' }, optional: true },
-  ] as const;
 
   // Helper function to format team names with division type
   const formatTeamName = (clubName: string, division: string, gender?: string): string => {
@@ -126,31 +116,28 @@ export default function ImportPlayers({ onImportComplete }: ImportPlayersProps) 
       .filter(row => row.name); // Only include rows with names
   };
 
-  const handlePastedDataImport = () => {
-    if (!pastedData.trim()) {
-      setError('Please paste some data first');
+  const handleFileImport = (data: string) => {
+    if (!data.trim()) {
+      setError('No data provided');
       return;
     }
 
     try {
-      const rows = parsePastedData(pastedData);
+      const rows = parsePastedData(data);
       if (rows.length === 0) {
-        setError('No valid player data found in pasted content. Make sure you include headers and player names.');
+        setError('No valid player data found in the content. Make sure you include headers and player names.');
         return;
       }
 
-      // Process through the same pipeline as file import
-      handleDataImport({ validData: rows });
-      setPastedData('');
+      processImportedData(rows);
     } catch (err) {
-      setError(`Paste import error: ${err instanceof Error ? err.message : String(err)}`);
+      setError(`Import error: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
-  const handleDataImport = (data: any) => {
+  const processImportedData = (rows: ImportedRow[]) => {
     try {
       setError(null);
-      const rows = data.validData as ImportedRow[];
 
       if (rows.length === 0) {
         setError('No valid player data found');
@@ -185,7 +172,6 @@ export default function ImportPlayers({ onImportComplete }: ImportPlayersProps) 
       const importedTeams = Team.createTeamsFromPlayers(importedPlayers);
       setTeams(importedTeams);
       setShowResults(true);
-      setIsImportOpen(false);
 
       // Notify parent component of successful import
       if (onImportComplete) {
@@ -193,7 +179,6 @@ export default function ImportPlayers({ onImportComplete }: ImportPlayersProps) 
       }
     } catch (err) {
       setError(`Import error: ${err instanceof Error ? err.message : String(err)}`);
-      setIsImportOpen(false);
     }
   };
 
@@ -229,27 +214,11 @@ export default function ImportPlayers({ onImportComplete }: ImportPlayersProps) 
             </p>
           </div>
 
-          <div className="space-y-4">
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
-              <button
-                onClick={() => setIsImportOpen(true)}
-                className="w-full px-4 py-3 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-              >
-                📁 Upload CSV File
-              </button>
-            </div>
-
-            <div className="text-center text-gray-500 font-medium">OR</div>
-
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                📋 Paste Data from Excel/Google Sheets
-              </label>
-              <textarea
-                value={pastedData}
-                onChange={e => setPastedData(e.target.value)}
-                placeholder="Paste your player data here (with headers)... 
-Example:
+          <SimpleFileImport
+            onImport={handleFileImport}
+            acceptedFileTypes=".csv,.tsv,.txt,text/plain,text/csv,text/tab-separated-values"
+            placeholder="Paste your player data here (with headers)... 
+Example CSV:
 Name,Gender,Mixed Club,Gendered Club,Cloth Club
 John Doe,M,Phoenix,Phoenix,Phoenix
 Jane Smith,F,Lightning,Lightning,Lightning
@@ -258,62 +227,8 @@ Or tab-separated format:
 Mixed Team	Gendered Foam	Open Cloth	Player	
 North Star Storm	North Star Storm	North Star Storm	Adrian Bird	M
 Sun Valley Storm		Hoxton Park Hedgehogs	Ahmed Chatila	M"
-                className="w-full h-32 p-3 border border-gray-300 rounded resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              <div className="mt-3 space-y-2">
-                <button
-                  onClick={handlePastedDataImport}
-                  disabled={!pastedData.trim()}
-                  className="w-full px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                >
-                  🚀 Quick Import (Auto-detect columns)
-                </button>
-                <button
-                  onClick={() => {
-                    if (pastedData.trim()) {
-                      setIsImportOpen(true);
-                      setPastedData(''); // Clear the paste box since they'll paste in the dialog
-                    } else {
-                      setError('Please paste some data first');
-                    }
-                  }}
-                  disabled={!pastedData.trim()}
-                  className="w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                >
-                  🎯 Use Column Mapper (Manual mapping)
-                </button>
-                <p className="text-xs text-gray-500 mt-1">
-                  <strong>Quick Import:</strong> Auto-detects common column names
-                  <br />
-                  <strong>Column Mapper:</strong> Opens dialog where you can paste data and manually map columns
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <ReactSpreadsheetImport
-            isOpen={isImportOpen}
-            onClose={() => setIsImportOpen(false)}
-            onSubmit={handleDataImport}
-            fields={fields}
-            allowInvalidSubmit={false}
-            translations={{
-              uploadStep: {
-                title: 'Upload Players File',
-                manifestLoadButton: 'Select File',
-              },
-              selectHeaderStep: {
-                title: 'Select Header Row',
-              },
-              matchColumnsStep: {
-                title: 'Match Columns',
-                userTableTitle: 'Your File',
-                templateTitle: 'Expected Format',
-              },
-              validationStep: {
-                title: 'Validate Data',
-              },
-            }}
+            buttonText="Import Players"
+            fileDescription="CSV or tab-separated player file"
           />
         </div>
       ) : (

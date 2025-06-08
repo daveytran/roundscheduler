@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { ReactSpreadsheetImport } from 'react-spreadsheet-import';
-import { parseCSV, importSchedule, parsePastedScheduleData, ImportedScheduleRow } from '../lib/importUtils';
-import { Team, TeamsMap } from '../models/Team';
+import { importSchedule, parsePastedScheduleData, ImportedScheduleRow } from '../lib/importUtils';
+import { TeamsMap } from '../models/Team';
 import { Match } from '../models/Match';
 import { Schedule } from '../models/Schedule';
 import ScheduleVisualization from './ScheduleVisualization';
 import { ScheduleRule } from '../models/ScheduleRule';
+import SimpleFileImport from './SimpleFileImport';
 
 interface ImportScheduleProps {
   teams?: TeamsMap | null;
@@ -13,58 +13,32 @@ interface ImportScheduleProps {
   onImportComplete?: (matches: Match[]) => void;
 }
 
-
-
 export default function ImportSchedule({ teams, rules = [], onImportComplete }: ImportScheduleProps) {
   const [matches, setMatches] = useState<Match[]>([]);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showResults, setShowResults] = useState<boolean>(false);
-  const [isImportOpen, setIsImportOpen] = useState<boolean>(false);
-  const [pastedData, setPastedData] = useState<string>('');
 
-  const fields = [
-    { label: 'Round', key: 'round', fieldType: { type: 'input' }, optional: true },
-    { label: 'Division', key: 'division', fieldType: { type: 'input' } },
-    { label: 'Time', key: 'time', fieldType: { type: 'input' }, optional: true },
-    { label: 'Home Team', key: 'homeTeam', fieldType: { type: 'input' } },
-    { label: 'Away Team', key: 'awayTeam', fieldType: { type: 'input' } },
-    { label: 'Court', key: 'court', fieldType: { type: 'input' }, optional: true },
-    { label: 'Team Referee', key: 'teamReferee', fieldType: { type: 'input' }, optional: true },
-  ] as const;
-
-
-
-  const handlePastedScheduleImport = () => {
-    if (!pastedData.trim()) {
-      setError('Please paste some data first');
-      return;
-    }
-
+  const handleFileImport = (data: string) => {
     try {
-      const rows = parsePastedScheduleData(pastedData);
+      setError(null);
+      
+      // Parse the data using the existing utility
+      const rows = parsePastedScheduleData(data);
+      
       if (rows.length === 0) {
-        setError('No valid schedule data found in pasted content. Make sure you include headers and both team names.');
+        setError('No valid schedule data found in the file. Make sure to include headers and both team names.');
         return;
       }
 
-      handleDataImport({ validData: rows });
-      setPastedData('');
+      processImportedData(rows);
     } catch (err) {
-      setError(`Paste import error: ${err instanceof Error ? err.message : String(err)}`);
+      setError(`Import error: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
-  const handleDataImport = (data: any) => {
+  const processImportedData = (rows: ImportedScheduleRow[]) => {
     try {
-      setError(null);
-      const rows = data.validData as ImportedScheduleRow[];
-
-      if (rows.length === 0) {
-        setError('No valid schedule data found');
-        return;
-      }
-
       // Initialize teams object if not provided
       const workingTeams = teams || {
         mixed: {},
@@ -75,7 +49,7 @@ export default function ImportSchedule({ teams, rules = [], onImportComplete }: 
       // Convert rows to the format expected by importSchedule utility
       // Create a CSV-like string from the imported data for compatibility with existing logic
       // Format: Round, Division, Time, Team1, Team2, Court, Referee (7 columns)
-                const csvData = rows
+      const csvData = rows
         .map(row => {
           // Include round field for special activity detection
           const round = row.round || '';
@@ -123,7 +97,6 @@ export default function ImportSchedule({ teams, rules = [], onImportComplete }: 
       setSchedule(newSchedule);
       
       setShowResults(true);
-      setIsImportOpen(false);
 
       // Notify parent component
       if (onImportComplete) {
@@ -131,7 +104,6 @@ export default function ImportSchedule({ teams, rules = [], onImportComplete }: 
       }
     } catch (err) {
       setError(`Import error: ${err instanceof Error ? err.message : String(err)}`);
-      setIsImportOpen(false);
     }
   };
 
@@ -141,8 +113,6 @@ export default function ImportSchedule({ teams, rules = [], onImportComplete }: 
     setError(null);
     setShowResults(false);
   };
-
-
 
   return (
     <div className="p-4 bg-white rounded shadow">
@@ -177,26 +147,10 @@ export default function ImportSchedule({ teams, rules = [], onImportComplete }: 
             )}
           </div>
 
-          <div className="space-y-4">
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
-              <button
-                onClick={() => setIsImportOpen(true)}
-                className="w-full px-4 py-3 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-              >
-                📁 Upload CSV File
-              </button>
-            </div>
-
-            <div className="text-center text-gray-500 font-medium">OR</div>
-
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                📋 Paste Schedule from Excel/Google Sheets
-              </label>
-              <textarea
-                value={pastedData}
-                onChange={e => setPastedData(e.target.value)}
-                placeholder="Paste your schedule data here (with headers)... 
+          <SimpleFileImport
+            onImport={handleFileImport}
+            acceptedFileTypes=".csv,.tsv,.txt,text/plain,text/csv,text/tab-separated-values"
+            placeholder="Paste your schedule data here (with headers)... 
 Example CSV:
 Time,Division,Field,Team1,Team2,Referee
 9:00,Mixed,Field 1,Team A,Team B,Team C
@@ -206,62 +160,8 @@ Or tab-separated format:
 Round	Division	Time	Home Team	Away Team	Court	Team Referee
 Mixed Foam	MX2	9:30	Fairfield Falcons	UTS Lizards	1	Fairlight Ascendents
 	MX2	10:20	Canterbury Nines	Chatswood Chibis	2	Villawood Hydra"
-                className="w-full h-32 p-3 border border-gray-300 rounded resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              <div className="mt-3 space-y-2">
-                <button
-                  onClick={handlePastedScheduleImport}
-                  disabled={!pastedData.trim()}
-                  className="w-full px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                >
-                  🚀 Quick Import (Auto-detect columns)
-                </button>
-                <button
-                  onClick={() => {
-                    if (pastedData.trim()) {
-                      setIsImportOpen(true);
-                      setPastedData(''); // Clear the paste box since they'll paste in the dialog
-                    } else {
-                      setError('Please paste some data first');
-                    }
-                  }}
-                  disabled={!pastedData.trim()}
-                  className="w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                >
-                  🎯 Use Column Mapper (Manual mapping)
-                </button>
-                <p className="text-xs text-gray-500 mt-1">
-                  <strong>Quick Import:</strong> Auto-detects common column names
-                  <br />
-                  <strong>Column Mapper:</strong> Opens dialog where you can paste data and manually map columns
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <ReactSpreadsheetImport
-            isOpen={isImportOpen}
-            onClose={() => setIsImportOpen(false)}
-            onSubmit={handleDataImport}
-            fields={fields}
-            allowInvalidSubmit={false}
-            translations={{
-              uploadStep: {
-                title: 'Upload Schedule File',
-                manifestLoadButton: 'Select File',
-              },
-              selectHeaderStep: {
-                title: 'Select Header Row',
-              },
-              matchColumnsStep: {
-                title: 'Match Columns',
-                userTableTitle: 'Your File',
-                templateTitle: 'Expected Format',
-              },
-              validationStep: {
-                title: 'Validate Data',
-              },
-            }}
+            buttonText="Import Schedule"
+            fileDescription="CSV or tab-separated schedule file"
           />
         </div>
       ) : (
