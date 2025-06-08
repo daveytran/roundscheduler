@@ -108,6 +108,13 @@ export default function ImportSchedule({ teams, rules = [], onImportComplete }: 
         return;
       }
 
+      // Mark setup and packdown activities as locked to prevent them from being moved during optimization
+      importedMatches.forEach(match => {
+        if (match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN') {
+          match.locked = true;
+        }
+      });
+
       setMatches(importedMatches);
       
       // Create Schedule object for visualization with rules

@@ -37,11 +37,35 @@ export class AvoidBackToBackGames extends ScheduleRule {
   evaluate(schedule: Schedule, violations: RuleViolation[]) {
     const matches = [...schedule.matches].sort((a, b) => a.timeSlot - b.timeSlot)
 
-    // Check teams
-    this.checkTeamConsecutiveGames(matches, violations)
+    // Check teams first and collect team violations
+    const teamViolations: RuleViolation[] = []
+    this.checkTeamConsecutiveGames(matches, teamViolations)
     
-    // Check players
-    this.checkPlayerConsecutiveGames(matches, violations)
+    // Check players and only add violations that differ from team violations
+    const playerViolations: RuleViolation[] = []
+    this.checkPlayerConsecutiveGames(matches, playerViolations)
+    
+    // Add team violations
+    violations.push(...teamViolations)
+    
+    // Only add player violations that are not already covered by team violations
+    playerViolations.forEach(playerViolation => {
+      const isAlreadyCoveredByTeam = teamViolations.some(teamViolation => {
+        // Check if this player violation is part of the team's consecutive games
+        return playerViolation.matches && teamViolation.matches && 
+          playerViolation.matches.every(playerMatch => 
+            teamViolation.matches!.some(teamMatch => 
+              teamMatch.timeSlot === playerMatch.timeSlot &&
+              (teamMatch.team1.name === playerMatch.team1.name || teamMatch.team2.name === playerMatch.team2.name) &&
+              teamMatch.field === playerMatch.field
+            )
+          )
+      })
+      
+      if (!isAlreadyCoveredByTeam) {
+        violations.push(playerViolation)
+      }
+    })
 
     return violations
   }
@@ -147,11 +171,44 @@ export class AvoidFirstAndLastGame extends ScheduleRule {
 
     if (matches.length === 0) return violations
 
-    // Check teams
-    this.checkTeamFirstAndLast(matches, violations)
+    // Check teams first and collect team violations
+    const teamViolations: RuleViolation[] = []
+    this.checkTeamFirstAndLast(matches, teamViolations)
     
-    // Check players
-    this.checkPlayerFirstAndLast(matches, violations)
+    // Check players and only add violations that differ from team violations
+    const playerViolations: RuleViolation[] = []
+    this.checkPlayerFirstAndLast(matches, playerViolations)
+    
+    // Add team violations
+    violations.push(...teamViolations)
+    
+    // Only add player violations that are not already covered by team violations
+    playerViolations.forEach(playerViolation => {
+      const playerName = playerViolation.description.match(/^Player (.+?) participates/)?.[1]
+      if (!playerName) {
+        violations.push(playerViolation)
+        return
+      }
+      
+      // Check if any team that this player belongs to already has a first/last violation
+      const isAlreadyCoveredByTeam = teamViolations.some(teamViolation => {
+        const teamName = teamViolation.description.match(/^Team (.+?) participates/)?.[1]
+        if (!teamName) return false
+        
+        // Check if this player belongs to the team with the violation
+        // A player belongs to a team if they appear in any match where that team plays
+        return playerViolation.matches && playerViolation.matches.some(match => {
+          // Player violation includes matches where the player participates
+          // Team violation includes matches where the team participates
+          // If they share matches involving the same team, then it's the same violation
+          return match.team1.name === teamName || match.team2.name === teamName
+        })
+      })
+      
+      if (!isAlreadyCoveredByTeam) {
+        violations.push(playerViolation)
+      }
+    })
 
     return violations
   }
@@ -648,11 +705,52 @@ export class LimitVenueTime extends ScheduleRule {
   evaluate(schedule: Schedule, violations: RuleViolation[]) {
     const matches = [...schedule.matches]
 
-    // Check players
-    this.checkPlayerVenueTime(matches, violations)
+    // Check teams first and collect team violations
+    const teamViolations: RuleViolation[] = []
+    this.checkTeamVenueTime(matches, teamViolations)
     
-    // Check teams for consecutive field time
-    this.checkTeamVenueTime(matches, violations)
+    // Check players and only add violations that differ from team violations
+    const playerViolations: RuleViolation[] = []
+    this.checkPlayerVenueTime(matches, playerViolations)
+    
+    // Add team violations
+    violations.push(...teamViolations)
+    
+    // Only add player violations that exceed the team's venue time requirement
+    playerViolations.forEach(playerViolation => {
+      const playerName = playerViolation.description.match(/^Player (.+?) needs/)?.[1]
+      const playerHours = playerViolation.description.match(/([\d.]+) hours/)?.[1]
+      
+      if (!playerName || !playerHours) {
+        violations.push(playerViolation)
+        return
+      }
+      
+      const playerHoursNum = parseFloat(playerHours)
+      
+      // Check if any team that this player belongs to has a venue time violation that covers this
+      const isExcessiveComparedToTeam = !teamViolations.some(teamViolation => {
+        const teamName = teamViolation.description.match(/^Team (.+?) needs/)?.[1]
+        const teamHours = teamViolation.description.match(/([\d.]+) hours/)?.[1]
+        
+        if (!teamName || !teamHours) return false
+        
+        // Check if this player belongs to this team (appears in matches with this team)
+        const playerBelongsToTeam = playerViolation.matches && playerViolation.matches.some(match => 
+          match.team1.name === teamName || match.team2.name === teamName
+        )
+        
+        if (!playerBelongsToTeam) return false
+        
+        const teamHoursNum = parseFloat(teamHours)
+        // Only skip player violation if it's not significantly worse than team violation
+        return playerHoursNum <= teamHoursNum + 0.5 // Allow 0.5 hour difference threshold
+      })
+      
+      if (isExcessiveComparedToTeam) {
+        violations.push(playerViolation)
+      }
+    })
 
     return violations
   }
@@ -684,43 +782,39 @@ export class LimitVenueTime extends ScheduleRule {
   }
 
   private checkTeamVenueTime(matches: Match[], violations: RuleViolation[]) {
-    const sortedMatches = [...matches].sort((a, b) => a.timeSlot - b.timeSlot)
+    // Get all teams in the schedule
+    const allTeams = new Set<string>()
+    matches.forEach(match => {
+      allTeams.add(match.team1.name)
+      allTeams.add(match.team2.name)
+      if (match.refereeTeam) {
+        allTeams.add(match.refereeTeam.name)
+      }
+    })
 
-    // Get all unique fields
-    const fields = Array.from(new Set(sortedMatches.map(m => m.field)))
+    // Check each team's total venue time
+    for (const teamName of Array.from(allTeams)) {
+      // Get all matches where this team is involved (playing or refereeing)
+      const teamMatches = matches
+        .filter(match => match.team1.name === teamName || match.team2.name === teamName || match.refereeTeam?.name === teamName)
+        .sort((a, b) => a.timeSlot - b.timeSlot)
 
-    // Check each field for extended team presence
-    for (const field of fields) {
-      const venueMatches = sortedMatches.filter(m => m.field === field)
+      if (teamMatches.length < 2) continue // Skip teams with only one activity
 
-      // Get all teams that play/ref at this venue
-      const teamsAtVenue = new Set<string>()
-      venueMatches.forEach(match => {
-        teamsAtVenue.add(match.team1.name)
-        teamsAtVenue.add(match.team2.name)
-        if (match.refereeTeam) {
-          teamsAtVenue.add(match.refereeTeam.name)
-        }
-      })
+      const firstSlot = teamMatches[0].timeSlot
+      const lastSlot = teamMatches[teamMatches.length - 1].timeSlot
 
-      // Check each team's time at this venue
-      for (const teamName of Array.from(teamsAtVenue)) {
-        const teamVenueMatches = venueMatches
-          .filter(m => m.team1.name === teamName || m.team2.name === teamName || m.refereeTeam?.name === teamName)
-          .sort((a, b) => a.timeSlot - b.timeSlot)
+      // Calculate total time at venue (from first activity start to last activity end)
+      const slotsSpan = lastSlot - firstSlot + 1 // +1 to include the last slot
+      const hoursAtVenue = (slotsSpan * this.minutesPerSlot) / 60
 
-        if (teamVenueMatches.length >= 3) {
-          const timeSpan = teamVenueMatches[teamVenueMatches.length - 1].timeSlot - teamVenueMatches[0].timeSlot
-          if (timeSpan <= 3) {
-            // If 3+ games within 3 time slots
-            violations.push({
-              rule: this.name,
-              description: `Team ${teamName}: Extended time at ${field} (${teamVenueMatches.length} games in ${timeSpan + 1} slots)`,
-              matches: teamVenueMatches,
-              level: 'warning',
-            })
-          }
-        }
+      if (hoursAtVenue > this.maxHours) {
+        violations.push({
+          rule: this.name,
+          description: `Team ${teamName} needs to be at venue for ${hoursAtVenue.toFixed(1)} hours (max: ${this.maxHours}h)`,
+          matches: teamMatches,
+          level: 'warning',
+        })
       }
     }
   }

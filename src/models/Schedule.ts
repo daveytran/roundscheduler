@@ -15,8 +15,32 @@ export class Schedule {
   score: number
   originalScore?: number // Score before optimization
 
-  constructor(matches?: Match[] | null) {
-    this.matches = matches ?? [] // Ensure matches is never undefined
+  constructor(matches?: (Match | any)[] | null) {
+    // Ensure we always have an array
+    const inputMatches = matches ?? []
+    
+    // Convert any plain objects to proper Match instances
+    this.matches = inputMatches.map((match: any, index: number) => {
+      // Check if this is already a proper Match instance
+      if (match instanceof Match) {
+        return match
+      }
+      
+      // If it's a plain object, convert it to a Match instance
+      console.log(`⚠️ Schedule constructor: Converting plain object to Match instance at index ${index}: ${match.team1?.name || 'Unknown'} vs ${match.team2?.name || 'Unknown'}`)
+      
+      return new Match(
+        match.team1,
+        match.team2,
+        match.timeSlot,
+        match.field,
+        match.division,
+        match.refereeTeam,
+        match.activityType || 'REGULAR',
+        match.locked || false
+      )
+    })
+    
     this.violations = []
     this.score = 0 // Lower is better (fewer rule violations)
   }
@@ -82,7 +106,8 @@ export class Schedule {
           match.field,
           match.division,
           match.refereeTeam,
-          match.activityType
+          match.activityType,
+          match.locked
         )
     )
 
@@ -139,14 +164,39 @@ export class Schedule {
             console.log(`  📊 Division order: ${originalOrder.join(', ')} → ${shuffledDivisions.join(', ')}`)
           }
 
-          // Reassign time slots based on new division order
-          let currentTimeSlot = 1
-
-          shuffledDivisions.forEach(division => {
+          // Preserve original time slot structure by redistributing existing time slots among shuffled divisions
+          // Collect ALL original time slots from the entire schedule (not just regularMatches being processed)
+          const allOriginalTimeSlots: number[] = []
+          this.matches.forEach(match => {
+            if (match.timeSlot != null) {
+              allOriginalTimeSlots.push(match.timeSlot)
+            }
+          })
+          
+          // Filter to only get time slots that belong to regular matches (not special activities)
+          const regularMatchTimeSlots = regularMatches.map(m => m.timeSlot).filter(slot => slot != null)
+          
+          if (shouldLog) {
+            console.log(`  📊 All schedule time slots: ${Array.from(new Set(allOriginalTimeSlots)).sort((a, b) => a - b).join(', ')}`)
+            console.log(`  📊 Regular match time slots: ${Array.from(new Set(regularMatchTimeSlots)).sort((a, b) => a - b).join(', ')}`)
+            console.log(`  📊 Total regular matches: ${regularMatches.length}`)
+          }
+          
+          // Use the original time slots that were assigned to regular matches
+          const timeSlotPool = [...regularMatchTimeSlots].sort((a, b) => a - b)
+          
+          // Distribute the time slots among the shuffled divisions
+          let timeSlotIndex = 0
+          shuffledDivisions.forEach((division, divIndex) => {
             const matches = divisionMatches[division]
             matches.forEach(match => {
-              match.timeSlot = currentTimeSlot
-              currentTimeSlot++
+              if (timeSlotIndex < timeSlotPool.length) {
+                match.timeSlot = timeSlotPool[timeSlotIndex]
+                timeSlotIndex++
+              } else {
+                // Fallback: if we run out of time slots, use the original time slot
+                console.warn(`⚠️ Time slot pool exhausted for match ${match.team1.name} vs ${match.team2.name}, keeping original time slot ${match.timeSlot}`)
+              }
             })
           })
 
@@ -180,20 +230,29 @@ export class Schedule {
         // Shuffle the matches within the division
         shuffleArray(matches)
 
-        // Get all time slots available to this division (sorted)
-        const availableTimeSlots = matches.map(m => m.timeSlot).sort((a, b) => a - b)
-
-        // Randomly assign the shuffled time slots to any available time slot for this division
-        shuffleArray(availableTimeSlots)
-
-        // Assign the shuffled time slots to the shuffled matches
-        matches.forEach((match, index) => {
-          const oldTimeSlot = match.timeSlot
-          match.timeSlot = availableTimeSlots[index]
-          if (oldTimeSlot !== match.timeSlot) {
-            changesDetected = true
+        // Preserve exact time slot distribution by shuffling matches within each time slot group
+        // Group matches by their current time slot
+        const matchesBySlot = new Map<number, typeof matches>()
+        matches.forEach(match => {
+          if (!matchesBySlot.has(match.timeSlot)) {
+            matchesBySlot.set(match.timeSlot, [])
           }
+          matchesBySlot.get(match.timeSlot)!.push(match)
         })
+        
+        // Shuffle matches within each time slot group, preserving distribution
+        matchesBySlot.forEach((slotMatches, timeSlot) => {
+          shuffleArray(slotMatches)
+        })
+        
+        // Rebuild the matches array with preserved time slot distribution
+        matches.length = 0
+        Array.from(matchesBySlot.entries()).forEach(([timeSlot, slotMatches]) => {
+          matches.push(...slotMatches)
+        })
+        
+        // Note: time slots are already correct, so no need to reassign them
+        changesDetected = true // Matches were shuffled within slots
 
         // Shuffle referee assignments within this division
         this.shuffleRefereeAssignments(matches)
@@ -237,78 +296,109 @@ export class Schedule {
       // Calculate how many time slots we need (accounting for multiple matches per slot)
       const slotsNeeded = Math.ceil(regularMatches.length / fieldsPerTimeSlot)
 
-      // Create time slots for regular matches, avoiding special activity slots
-      const availableSlots: number[] = []
-      let slotNum = 1
-      while (availableSlots.length < slotsNeeded) {
-        if (!specialActivitySlots.has(slotNum)) {
-          availableSlots.push(slotNum)
-        }
-        slotNum++
-      }
-
-      // Shuffle the available time slots
-      const shuffledTimeSlots = [...availableSlots]
-      shuffleArray(shuffledTimeSlots)
-
-      // Shuffle all regular matches randomly
-      const shuffledMatches = [...regularMatches]
-      shuffleArray(shuffledMatches)
-
-      // Create a proper assignment ensuring no field conflicts
-      // First, create a schedule grid: timeSlot -> field -> match assignment
-      const scheduleGrid: Map<number, Map<string, boolean>> = new Map()
+      // Only use existing time slots from the schedule, avoiding special activity slots
+      const existingTimeSlots = Array.from(new Set(this.matches.map(m => m.timeSlot))).sort((a, b) => a - b)
+      const availableSlots = existingTimeSlots.filter(slot => !specialActivitySlots.has(slot))
       
-      // Initialize the grid
-      shuffledTimeSlots.forEach(timeSlot => {
-        const fieldMap = new Map<string, boolean>()
-        allFields.forEach(field => {
-          fieldMap.set(field, false) // false = available, true = occupied
-        })
-        scheduleGrid.set(timeSlot, fieldMap)
-      })
+      // If we don't have enough time slots for the scatter strategy, fall back to within-division shuffling
+      if (availableSlots.length < slotsNeeded) {
+        if (shouldLog) {
+          console.log(`  ⚠️ Not enough existing time slots (${availableSlots.length}) for scattering ${slotsNeeded} slots needed. Falling back to within-division shuffling.`)
+        }
+        
+        // Fall back to the original approach: shuffle matches within existing division blocks
+        const divisionMatches = ScheduleHelpers.groupMatchesByDivision(regularMatches)
 
-      shuffledMatches.forEach((match, index) => {
-        const oldTimeSlot = match.timeSlot
-        const oldField = match.field
+        // Randomize each division's regular matches and referee assignments
+        for (const division in divisionMatches) {
+          const matches = divisionMatches[division]
 
-        // Find the first available time slot and field combination
-        let assigned = false
-        for (const timeSlot of shuffledTimeSlots) {
-          const fieldMap = scheduleGrid.get(timeSlot)!
-          for (const field of allFields) {
-            if (!fieldMap.get(field)) {
-              // This field is available in this time slot
-              match.timeSlot = timeSlot
-              match.field = field
-              fieldMap.set(field, true) // Mark as occupied
-              assigned = true
-              
-              if (oldTimeSlot !== match.timeSlot || oldField !== match.field) {
-                changesDetected = true
-              }
-              break
+          if (matches.length === 0) continue
+
+          // Store original state for comparison
+          const originalTimeSlots = matches.map(m => m.timeSlot)
+          const originalReferees = matches.map(m => m.refereeTeam?.name || 'none')
+
+          // Shuffle the matches within the division
+          shuffleArray(matches)
+
+          // Preserve exact time slot distribution by shuffling matches within each time slot group
+          const matchesBySlot = new Map<number, typeof matches>()
+          matches.forEach(match => {
+            if (!matchesBySlot.has(match.timeSlot)) {
+              matchesBySlot.set(match.timeSlot, [])
             }
+            matchesBySlot.get(match.timeSlot)!.push(match)
+          })
+          
+          // Shuffle matches within each time slot group, preserving distribution
+          matchesBySlot.forEach((slotMatches, timeSlot) => {
+            shuffleArray(slotMatches)
+          })
+          
+          // Rebuild the matches array with preserved time slot distribution
+          matches.length = 0
+          Array.from(matchesBySlot.entries()).forEach(([timeSlot, slotMatches]) => {
+            matches.push(...slotMatches)
+          })
+          
+          // Note: time slots are already correct, so no need to reassign them
+          changesDetected = true // Matches were shuffled within slots
+
+          // Shuffle referee assignments within this division
+          this.shuffleRefereeAssignments(matches)
+
+          // Check if referee assignments changed
+          const newReferees = matches.map(m => m.refereeTeam?.name || 'none')
+          if (JSON.stringify(originalReferees) !== JSON.stringify(newReferees)) {
+            changesDetected = true
           }
-          if (assigned) break
         }
 
-        if (!assigned) {
-          // Fallback: this shouldn't happen if our math is correct, but just in case
-          console.warn(`⚠️ Could not assign field for match ${match.team1.name} vs ${match.team2.name}`)
-          // Keep original assignment
+        // Fix field assignments to prevent conflicts after time slot shuffling
+        this.fixFieldConflicts(regularMatches)
+        
+        // Skip the scatter logic below since we're falling back
+      } else {
+
+      // Preserve time slot distribution while scattering divisions
+      // Group all regular matches by their current time slot
+      const allMatchesBySlot = new Map<number, typeof regularMatches>()
+      regularMatches.forEach(match => {
+        if (!allMatchesBySlot.has(match.timeSlot)) {
+          allMatchesBySlot.set(match.timeSlot, [])
         }
+        allMatchesBySlot.get(match.timeSlot)!.push(match)
+      })
+      
+      // For each time slot, shuffle the matches within that slot and reassign fields
+      allMatchesBySlot.forEach((slotMatches, timeSlot) => {
+        shuffleArray(slotMatches)
+        
+        // Reassign fields within this time slot to create variety
+        const availableFields = [...allFields]
+        shuffleArray(availableFields)
+        
+        slotMatches.forEach((match, index) => {
+          const oldField = match.field
+          if (index < availableFields.length) {
+            match.field = availableFields[index]
+          } else {
+            // If more matches than fields, assign cyclically
+            match.field = availableFields[index % availableFields.length]
+          }
+          
+          if (match.field !== oldField) {
+            changesDetected = true
+          }
+        })
       })
 
-      // Group the shuffled matches by division for referee shuffling
-      const divisionMatches = ScheduleHelpers.groupMatchesByDivision(shuffledMatches)
+      // Group the matches by division for referee shuffling
+      const divisionMatches = ScheduleHelpers.groupMatchesByDivision(regularMatches)
       for (const division in divisionMatches) {
         this.shuffleRefereeAssignments(divisionMatches[division])
       }
-
-      // Update the regularMatches array to reflect the changes
-      regularMatches.length = 0 // Clear the original array
-      regularMatches.push(...shuffledMatches) // Add the shuffled matches
 
       if (shouldLog && changesDetected) {
         const newArrangement = regularMatches.map(m => ({ slot: m.timeSlot, division: m.division }))
@@ -326,6 +416,7 @@ export class Schedule {
           divisionSlots[div].sort((a, b) => a - b)
           console.log(`    ${div}: slots ${divisionSlots[div].join(', ')}`)
         })
+      }
       }
     }
 
@@ -427,6 +518,10 @@ export class Schedule {
 
     for (const timeSlot of timeSlots) {
       const timeSlotMatches = matchesByTimeSlot[timeSlot]
+      if (!timeSlotMatches || timeSlotMatches.length === 0) {
+        continue // Skip time slots with no matches
+      }
+      
       const usedRefereesThisSlot = new Set<string>()
 
       // console.log(`Assigning referees for time slot ${timeSlot} with ${timeSlotMatches.length} matches`)
@@ -490,6 +585,10 @@ export class Schedule {
       if (!match.refereeTeam) {
         // Get all teams not playing in this match and not already refereeing in this time slot
         const timeSlotMatches = matchesByTimeSlot[match.timeSlot]
+        if (!timeSlotMatches || timeSlotMatches.length === 0) {
+          continue // Skip if no matches in this time slot
+        }
+        
         const usedRefereesThisSlot = new Set(
           timeSlotMatches.filter(m => m.refereeTeam && m !== match).map(m => m.refereeTeam!.name)
         )
@@ -537,7 +636,7 @@ export class Schedule {
       const timeSlot = parseInt(timeSlotStr)
       const timeSlotMatches = matchesByTimeSlot[timeSlot]
       
-      if (timeSlotMatches.length <= 1) {
+      if (!timeSlotMatches || timeSlotMatches.length <= 1) {
         return // No conflicts possible with 0 or 1 match
       }
 
@@ -711,6 +810,163 @@ export class Schedule {
     return bestSchedule
   }
 
+  /**
+   * Swap two matches in the schedule
+   * @param match1 First match to swap
+   * @param match2 Second match to swap  
+   * @returns New schedule with swapped matches, or null if either match is locked
+   */
+  swapMatches(match1: Match, match2: Match): Schedule | null {
+    // Check if either match is locked
+    if (match1.locked || match2.locked) {
+      return null;
+    }
+
+    // Find the matches in our schedule
+    const match1Index = this.matches.findIndex(m => 
+      m.team1.name === match1.team1.name && 
+      m.team2.name === match1.team2.name && 
+      m.timeSlot === match1.timeSlot &&
+      m.field === match1.field
+    );
+    
+    const match2Index = this.matches.findIndex(m => 
+      m.team1.name === match2.team1.name && 
+      m.team2.name === match2.team2.name && 
+      m.timeSlot === match2.timeSlot &&
+      m.field === match2.field
+    );
+
+    if (match1Index === -1 || match2Index === -1) {
+      console.warn('One or both matches not found in schedule');
+      return null;
+    }
+
+    // Create a new schedule with swapped matches
+    const newMatches = copyMatches(this.matches);
+    
+    // Swap time slots and fields
+    const tempTimeSlot = newMatches[match1Index].timeSlot;
+    const tempField = newMatches[match1Index].field;
+    
+    newMatches[match1Index].timeSlot = newMatches[match2Index].timeSlot;
+    newMatches[match1Index].field = newMatches[match2Index].field;
+    
+    newMatches[match2Index].timeSlot = tempTimeSlot;
+    newMatches[match2Index].field = tempField;
+
+    return new Schedule(newMatches);
+  }
+
+  /**
+   * Move matches to a specific time slot
+   * @param matches Array of matches to move
+   * @param targetTimeSlot Target time slot to move matches to
+   * @returns New schedule with moved matches, or null if not enough courts available
+   */
+  moveMatchesToTimeSlot(matches: Match[], targetTimeSlot: number): Schedule | null {
+    // Check if any of the matches are locked
+    if (matches.some(match => match.locked)) {
+      return null;
+    }
+
+    // Check if target time slot exists in the schedule
+    const existingTimeSlots = new Set(this.matches.map(m => m.timeSlot));
+    if (!existingTimeSlots.has(targetTimeSlot)) {
+      return null; // Don't create new time slots
+    }
+
+    // Check if target time slot contains setup or packdown activities
+    const setupOrPackdownInSlot = this.matches.some(m => 
+      m.timeSlot === targetTimeSlot && 
+      (m.activityType === 'SETUP' || m.activityType === 'PACKING_DOWN')
+    );
+    if (setupOrPackdownInSlot) {
+      return null; // Don't allow moving into setup/packdown slots
+    }
+
+    // Get all available fields
+    const allFields = Array.from(new Set(this.matches.map(m => m.field)));
+    
+    // Check what matches are already scheduled in the target time slot
+    const existingMatchesInSlot = this.matches.filter(m => 
+      m.timeSlot === targetTimeSlot && 
+      !matches.some(moveMatch => 
+        moveMatch.team1.name === m.team1.name && 
+        moveMatch.team2.name === m.team2.name &&
+        moveMatch.timeSlot === m.timeSlot &&
+        moveMatch.field === m.field
+      )
+    );
+
+    // Check if we have enough courts
+    const totalMatchesInSlot = existingMatchesInSlot.length + matches.length;
+    if (totalMatchesInSlot > allFields.length) {
+      return null; // Not enough courts
+    }
+
+    // Create new schedule
+    const newMatches = copyMatches(this.matches);
+    
+    // Find available fields in the target time slot
+    const usedFields = new Set(existingMatchesInSlot.map(m => m.field));
+    const availableFields = allFields.filter(field => !usedFields.has(field));
+
+    // Move the matches
+    matches.forEach((matchToMove, index) => {
+      const matchIndex = newMatches.findIndex(m => 
+        m.team1.name === matchToMove.team1.name && 
+        m.team2.name === matchToMove.team2.name && 
+        m.timeSlot === matchToMove.timeSlot &&
+        m.field === matchToMove.field
+      );
+
+      if (matchIndex !== -1 && index < availableFields.length) {
+        newMatches[matchIndex].timeSlot = targetTimeSlot;
+        newMatches[matchIndex].field = availableFields[index];
+      }
+    });
+
+    return new Schedule(newMatches);
+  }
+
+  /**
+   * Swap all matches between two time slots
+   * @param timeSlot1 First time slot
+   * @param timeSlot2 Second time slot
+   * @returns New schedule with swapped time slots
+   */
+  swapTimeSlots(timeSlot1: number, timeSlot2: number): Schedule | null {
+    // Get all matches in both time slots
+    const slot1Matches = this.matches.filter(m => m.timeSlot === timeSlot1);
+    const slot2Matches = this.matches.filter(m => m.timeSlot === timeSlot2);
+
+    // Check if any matches are locked
+    if (slot1Matches.some(m => m.locked) || slot2Matches.some(m => m.locked)) {
+      return null;
+    }
+
+    // Check if any matches have special activities (SETUP or PACKING_DOWN) - these should be treated as locked
+    if (slot1Matches.some(m => m.isSpecialActivity()) ||
+        slot2Matches.some(m => m.isSpecialActivity())) {
+      return null;
+    }
+
+    // Create new schedule
+    const newMatches = copyMatches(this.matches);
+
+    // Swap time slots for all matches
+    newMatches.forEach(match => {
+      if (match.timeSlot === timeSlot1) {
+        match.timeSlot = timeSlot2;
+      } else if (match.timeSlot === timeSlot2) {
+        match.timeSlot = timeSlot1;
+      }
+    });
+
+    return new Schedule(newMatches);
+  }
+
   deepCopy() {
     const copy = new Schedule(copyMatches(this.matches))
     copy.score = this.score
@@ -722,11 +978,45 @@ export class Schedule {
       console.error(`❌ deepCopy() match count mismatch: original=${this.matches.length}, copy=${copy.matches.length}`)
     }
     
-    // Verify special activities are preserved
-    const originalSpecialCount = this.matches.filter(m => m.isSpecialActivity?.()).length
-    const copySpecialCount = copy.matches.filter(m => m.isSpecialActivity?.()).length
-    if (originalSpecialCount !== copySpecialCount) {
-      console.error(`❌ deepCopy() special activity count mismatch: original=${originalSpecialCount}, copy=${copySpecialCount}`)
+    // Safer special activity filtering that handles non-Match instances
+    const getSpecialActivities = (matches: any[]) => {
+      return matches.filter(m => {
+        // Handle both Match instances and plain objects
+        if (typeof m.isSpecialActivity === 'function') {
+          return m.isSpecialActivity()
+        } else {
+          // For plain objects, check activityType directly
+          return m.activityType === 'SETUP' || m.activityType === 'PACKING_DOWN'
+        }
+      })
+    }
+    
+    const originalSpecialActivities = getSpecialActivities(this.matches)
+    const copySpecialActivities = getSpecialActivities(copy.matches)
+    
+    if (originalSpecialActivities.length !== copySpecialActivities.length) {
+      console.error(`❌ deepCopy() special activity count mismatch: original=${originalSpecialActivities.length}, copy=${copySpecialActivities.length}`)
+      
+      // Debug: Show the actual matches that are special activities
+      console.log('Original special activities:')
+      originalSpecialActivities.forEach(m => {
+        const hasMethod = typeof m.isSpecialActivity === 'function'
+        console.log(`  ${m.team1?.name || 'Unknown'} vs ${m.team2?.name || 'Unknown'} - activityType: "${m.activityType}", hasMethod: ${hasMethod}`)
+      })
+      
+      console.log('Copy special activities:')
+      copySpecialActivities.forEach(m => {
+        const hasMethod = typeof m.isSpecialActivity === 'function'
+        console.log(`  ${m.team1?.name || 'Unknown'} vs ${m.team2?.name || 'Unknown'} - activityType: "${m.activityType}", hasMethod: ${hasMethod}`)
+      })
+      
+      // Debug: Show all original matches and their types
+      console.log('All original matches (first 10):')
+      this.matches.slice(0, 10).forEach((m, i) => {
+        const hasMethod = typeof m.isSpecialActivity === 'function'
+        const isInstance = m instanceof Match
+        console.log(`  [${i}] ${m.team1?.name || 'Unknown'} vs ${m.team2?.name || 'Unknown'} - activityType: "${m.activityType}", hasMethod: ${hasMethod}, isInstance: ${isInstance}`)
+      })
     }
     
     return copy
@@ -745,15 +1035,45 @@ function shuffleArray<T>(array: T[]): void {
 // Helper function to create deep copies of matches
 const copyMatches = (matches: Match[]): Match[] => {
   return matches.map(
-    match =>
-      new Match(
+    match => {
+      // Debug: Check if this is actually a Match instance
+      const isInstance = match instanceof Match
+      const hasMethod = typeof match.isSpecialActivity === 'function'
+      
+      if (!isInstance || !hasMethod) {
+        console.log(`⚠️ copyMatches: Found non-Match instance: ${match.team1?.name || 'Unknown'} vs ${match.team2?.name || 'Unknown'}, isInstance: ${isInstance}, hasMethod: ${hasMethod}`)
+      }
+      
+      // Debug: Log any matches with unusual activityType values
+      if (match.activityType !== 'SETUP' && match.activityType !== 'PACKING_DOWN' && match.activityType !== 'REGULAR') {
+        console.log(`⚠️ copyMatches: Found match with unusual activityType: "${match.activityType}" for ${match.team1?.name || 'Unknown'} vs ${match.team2?.name || 'Unknown'}`)
+      }
+      
+      // Ensure we have a valid activityType
+      const activityType = match.activityType || 'REGULAR'
+      
+      const newMatch = new Match(
         match.team1,
         match.team2,
         match.timeSlot,
         match.field,
         match.division,
         match.refereeTeam,
-        match.activityType
+        activityType,
+        match.locked
       )
+      
+      // Debug: Check if the copy has different special activity status
+      const originalIsSpecial = hasMethod ? match.isSpecialActivity() : (match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN')
+      const copyIsSpecial = newMatch.isSpecialActivity()
+      
+      if (originalIsSpecial !== copyIsSpecial) {
+        console.log(`⚠️ copyMatches: Special activity status changed during copy: ${match.team1?.name || 'Unknown'} vs ${match.team2?.name || 'Unknown'}`)
+        console.log(`  Original: activityType="${match.activityType}", isSpecial=${originalIsSpecial}`)
+        console.log(`  Copy: activityType="${newMatch.activityType}", isSpecial=${copyIsSpecial}`)
+      }
+      
+      return newMatch
+    }
   )
 }

@@ -47,6 +47,8 @@ export interface Match {
   refereeTeam: Team | null;
   /** Type of activity - SETUP, PACKING_DOWN, or REGULAR match */
   activityType: 'SETUP' | 'PACKING_DOWN' | 'REGULAR';
+  /** Whether this match is locked and cannot be moved */
+  locked: boolean;
 }
 
 /**
@@ -87,6 +89,30 @@ export interface Schedule {
    * @returns A new randomized schedule
    */
   randomize(): Schedule;
+
+  /**
+   * Swap two matches in the schedule
+   * @param match1 First match to swap
+   * @param match2 Second match to swap
+   * @returns New schedule with swapped matches, or null if either match is locked
+   */
+  swapMatches(match1: Match, match2: Match): Schedule | null;
+
+  /**
+   * Move matches to a specific time slot
+   * @param matches Array of matches to move
+   * @param targetTimeSlot Target time slot to move matches to
+   * @returns New schedule with moved matches, or null if not enough courts available
+   */
+  moveMatchesToTimeSlot(matches: Match[], targetTimeSlot: number): Schedule | null;
+
+  /**
+   * Swap all matches between two time slots
+   * @param timeSlot1 First time slot
+   * @param timeSlot2 Second time slot
+   * @returns New schedule with swapped time slots, or null if any matches are locked
+   */
+  swapTimeSlots(timeSlot1: number, timeSlot2: number): Schedule | null;
 }
 
 /**

@@ -4,11 +4,7 @@ import {
   AvoidBackToBackGames,
   AvoidFirstAndLastGame,
   AvoidReffingBeforePlaying,
-  AvoidPlayerBackToBackGames,
-  EnsurePlayerRestTime,
-  AvoidPlayerFirstAndLastGame,
-  LimitPlayerVenueTime,
-  AvoidPlayerLargeGaps,
+  LimitVenueTime,
   EnsureFairFieldDistribution,
 } from '../../models/ScheduleRule';
 import { testScenarios, createMockMatches } from '../../lib/testUtils';
@@ -79,7 +75,7 @@ describe('ScheduleRule Tests', () => {
   });
 
   describe('AvoidFirstAndLastGame', () => {
-    it('should detect teams with first and last games in division', () => {
+    it('should detect teams with first and last games but suppress redundant player violations', () => {
       const rule = new AvoidFirstAndLastGame(2);
       const matches = createMockMatches([
         { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1', division: 'mixed' },
@@ -91,6 +87,7 @@ describe('ScheduleRule Tests', () => {
 
       rule.evaluate(schedule, violations);
 
+      // Should only have the team violation, player violations should be suppressed since they're covered by team violation
       expect(violations).toHaveLength(1);
       expect(violations[0].description).toContain('Team A');
       expect(violations[0].description).toContain('first period (setup + first game) and last period (last game + packdown) of the day');
@@ -144,90 +141,7 @@ describe('ScheduleRule Tests', () => {
     });
   });
 
-  describe('AvoidPlayerBackToBackGames', () => {
-    it('should detect individual players with back-to-back games', () => {
-      const rule = new AvoidPlayerBackToBackGames(2);
-      const matches = createMockMatches([
-        { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1' },
-        { team1: 'Team A', team2: 'Team C', timeSlot: 2, field: 'Field 1' }, // Team A players back-to-back
-      ]);
-      const schedule = new Schedule(matches);
-      const violations: RuleViolation[] = [];
 
-      rule.evaluate(schedule, violations);
-
-      // Should detect violations for Team A players
-      expect(violations.length).toBeGreaterThan(0);
-      expect(violations.some(v => v.description.includes('back-to-back games'))).toBe(true);
-    });
-  });
-
-  describe('EnsurePlayerRestTime', () => {
-    it('should detect insufficient rest time between player games', () => {
-      const rule = new EnsurePlayerRestTime(1, 2); // Require 2 slots rest
-      const matches = createMockMatches([
-        { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1' },
-        { team1: 'Team A', team2: 'Team C', timeSlot: 3, field: 'Field 1' }, // Only 1 slot rest (insufficient)
-      ]);
-      const schedule = new Schedule(matches);
-      const violations: RuleViolation[] = [];
-
-      rule.evaluate(schedule, violations);
-
-      expect(violations.length).toBeGreaterThan(0);
-      expect(violations.some(v => v.description.includes('insufficient rest'))).toBe(true);
-    });
-
-    it('should not flag when players have adequate rest', () => {
-      const rule = new EnsurePlayerRestTime(1, 2); // Require 2 slots rest
-      const matches = createMockMatches([
-        { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1' },
-        { team1: 'Team A', team2: 'Team C', timeSlot: 4, field: 'Field 1' }, // 2 slots rest (adequate)
-      ]);
-      const schedule = new Schedule(matches);
-      const violations: RuleViolation[] = [];
-
-      rule.evaluate(schedule, violations);
-
-      // Should have no violations for insufficient rest
-      const restViolations = violations.filter(v => v.description.includes('insufficient rest'));
-      expect(restViolations).toHaveLength(0);
-    });
-  });
-
-  describe('LimitPlayerVenueTime', () => {
-    it('should detect players exceeding venue time limits', () => {
-      const rule = new LimitPlayerVenueTime(1, 2, 30); // Max 2 hours, 30 min slots
-      const matches = createMockMatches([
-        { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1' }, // Start at slot 1
-        { team1: 'Team A', team2: 'Team C', timeSlot: 6, field: 'Field 1' }, // End at slot 6 = 5 slots = 2.5 hours
-      ]);
-      const schedule = new Schedule(matches);
-      const violations: RuleViolation[] = [];
-
-      rule.evaluate(schedule, violations);
-
-      expect(violations.length).toBeGreaterThan(0);
-      expect(violations.some(v => v.description.includes('needs to be at venue for'))).toBe(true);
-    });
-  });
-
-  describe('AvoidPlayerLargeGaps', () => {
-    it('should detect large gaps between player games', () => {
-      const rule = new AvoidPlayerLargeGaps(1, 3); // Max 3 slot gap
-      const matches = createMockMatches([
-        { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1' },
-        { team1: 'Team A', team2: 'Team C', timeSlot: 6, field: 'Field 1' }, // 4 slot gap (too large)
-      ]);
-      const schedule = new Schedule(matches);
-      const violations: RuleViolation[] = [];
-
-      rule.evaluate(schedule, violations);
-
-      expect(violations.length).toBeGreaterThan(0);
-      expect(violations.some(v => v.description.includes('4-slot gap'))).toBe(true);
-    });
-  });
 
   describe('EnsureFairFieldDistribution', () => {
     it('should detect unfair field distribution for teams', () => {

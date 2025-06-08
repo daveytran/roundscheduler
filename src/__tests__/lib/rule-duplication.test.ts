@@ -11,7 +11,7 @@ describe('Rule Duplication', () => {
       enabled: true,
       priority: 8, // Different from default priority of 5
       type: 'duplicated',
-      category: 'team',
+      category: 'both',
       baseRuleId: 'back_to_back',
       configuredParams: {
         // Use default parameters
@@ -25,19 +25,19 @@ describe('Rule Duplication', () => {
     expect(rule).not.toBeNull();
     expect(rule).toBeInstanceOf(AvoidBackToBackGames);
     expect(rule!.priority).toBe(8); // Should use the custom priority
-    expect(rule!.name).toBe('Avoid back-to-back games (Teams)'); // Should use the original rule name
+    expect(rule!.name).toBe('Avoid back-to-back games');
   });
 
   test('should create duplicated rule with custom parameters', () => {
     // Create a duplicated rule configuration for a rule with parameters
     const duplicatedRuleConfig: RuleConfigurationData = {
       id: 'duplicate_player_rest_123456789',
-      name: 'Ensure player rest time (Copy)',
+      name: 'Manage rest time and gaps (Copy)',
       enabled: true,
       priority: 3,
       type: 'duplicated',
       category: 'player',
-      baseRuleId: 'player_rest_time',
+      baseRuleId: 'manage_rest_and_gaps',
       configuredParams: {
         minRestSlots: 3, // Different from default of 2
       }
@@ -74,11 +74,11 @@ describe('Rule Duplication', () => {
     // Original rule configuration
     const originalRuleConfig: RuleConfigurationData = {
       id: 'back_to_back',
-      name: 'Avoid back-to-back games (Teams)',
+      name: 'Avoid back-to-back games',
       enabled: true,
       priority: 5, // Original priority
       type: 'builtin',
-      category: 'team',
+      category: 'both',
     };
 
     // Duplicated rule configuration with different priority
@@ -88,7 +88,7 @@ describe('Rule Duplication', () => {
       enabled: true,
       priority: 9, // Higher priority
       type: 'duplicated',
-      category: 'team',
+      category: 'both',
       baseRuleId: 'back_to_back',
     };
 
@@ -109,7 +109,7 @@ describe('Rule Duplication', () => {
     expect(duplicatedRule!.priority).toBe(9);
 
     // Names should be the same (from the original rule definition)
-    expect(originalRule!.name).toBe('Avoid back-to-back games (Teams)');
-    expect(duplicatedRule!.name).toBe('Avoid back-to-back games (Teams)');
+    expect(originalRule!.name).toBe('Avoid back-to-back games');
+    expect(duplicatedRule!.name).toBe('Avoid back-to-back games');
   });
 }); 

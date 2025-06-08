@@ -8,6 +8,7 @@ export interface MatchData {
   division: string;
   refereeTeam: string | null;
   activityType?: 'SETUP' | 'PACKING_DOWN' | 'REGULAR';
+  locked?: boolean;
 }
 
 /**
@@ -21,6 +22,7 @@ export class Match {
   division: Division;
   refereeTeam: Team | null; // Team assigned to referee this match
   activityType: 'SETUP' | 'PACKING_DOWN' | 'REGULAR'; // Type of activity
+  locked: boolean; // Whether this match is locked and cannot be moved
 
   constructor(
     team1: Team,
@@ -29,7 +31,8 @@ export class Match {
     field: string,
     division: Division,
     refereeTeam: Team | null = null,
-    activityType: 'SETUP' | 'PACKING_DOWN' | 'REGULAR' = 'REGULAR'
+    activityType: 'SETUP' | 'PACKING_DOWN' | 'REGULAR' = 'REGULAR',
+    locked: boolean = false
   ) {
     this.team1 = team1;
     this.team2 = team2;
@@ -38,6 +41,7 @@ export class Match {
     this.division = division;
     this.refereeTeam = refereeTeam;
     this.activityType = activityType;
+    this.locked = locked;
   }
 
   /**
@@ -113,6 +117,7 @@ export class Match {
       division: this.division,
       refereeTeam: this.refereeTeam ? this.refereeTeam.name : null,
       activityType: this.activityType,
+      locked: this.locked,
     };
   }
 }

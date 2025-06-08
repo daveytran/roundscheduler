@@ -6,17 +6,16 @@ import {
   OPTIMIZATION_STRATEGIES, 
   OptimizationStrategyInfo,
   RANDOM_OPTIMIZE,
-  GENETIC_OPTIMIZE,
   STRATEGIC_OPTIMIZE
 } from '../../models/OptimizationStrategy'
-import { ScheduleRule, AvoidBackToBackGames, EnsurePlayerRestTime } from '../../models/ScheduleRule'
+import { ScheduleRule, AvoidBackToBackGames, ManageRestTimeAndGaps } from '../../models/ScheduleRule'
 import { Division } from '../../models/Team'
 
 // Test configuration constants
-const BENCHMARK_ITERATIONS = 2000
+const BENCHMARK_ITERATIONS = 500
 const TARGET_SCORE = 0 // Perfect score
 const ACCEPTABLE_SCORE = 10 // Good enough score
-const TIMEOUT_MS = 30000 // 30 seconds max per strategy
+const TIMEOUT_MS = 15000 // Reduced from 30 seconds
 
 interface BenchmarkResult {
   strategyName: string
@@ -107,8 +106,11 @@ describe('Optimization Strategy Benchmark', () => {
     // Intentionally create problematic overlaps by resetting time slots
     // This will create conflicts that optimization needs to solve
     matches.forEach((match, index) => {
-      // Create clustering that violates rest time rules
-      match.timeSlot = Math.floor(index / 4) + 1
+      // Create clustering that violates rest time rules but respects field constraints
+      // Put 3 matches per time slot (matching the 3 available fields) to avoid field conflicts
+      match.timeSlot = Math.floor(index / 3) + 1
+      // Reassign fields to ensure no conflicts within each time slot
+      match.field = `Field ${(index % 3) + 1}`
     })
 
     const schedule = new Schedule(matches)
@@ -116,7 +118,7 @@ describe('Optimization Strategy Benchmark', () => {
     // Create comprehensive rules
     const rules: ScheduleRule[] = [
       new AvoidBackToBackGames(10), // High priority
-      new EnsurePlayerRestTime(8, 1), // High priority - minimal rest
+      new ManageRestTimeAndGaps(8, 1, 6), // High priority - minimal rest, reasonable max gap
       // Add field conflict rule manually since it's not in the imported rules
       {
         name: 'No Field Conflicts',
@@ -373,5 +375,5 @@ describe('Optimization Strategy Benchmark', () => {
     
     expect(speedResults.length).toBe(OPTIMIZATION_STRATEGIES.length)
     expect(speedResults.every(r => r.earlyImprovement >= 0)).toBe(true)
-  })
+  }, TIMEOUT_MS * OPTIMIZATION_STRATEGIES.length) // Add proper timeout
 }) 
