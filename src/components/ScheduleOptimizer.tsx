@@ -63,6 +63,7 @@ export default function ScheduleOptimizer({
   const [originalMatches, setOriginalMatches] = useState<Match[]>(matches || []);
   const [currentOptimizedSchedule, setCurrentOptimizedSchedule] = useState<Schedule | null>(null);
   const originalMatchesFingerprintRef = useRef<string>(getMatchesFingerprint(matches || []));
+  const continuationScheduleRef = useRef<Schedule | null>(null);
 
   // Throttling refs to avoid stale closure state inside optimization callback
   const lastUIUpdateRef = useRef<number>(0);
@@ -76,6 +77,7 @@ export default function ScheduleOptimizer({
     if (incomingFingerprint !== originalMatchesFingerprintRef.current) {
       originalMatchesFingerprintRef.current = incomingFingerprint;
       setCurrentOptimizedSchedule(null);
+      continuationScheduleRef.current = null;
       setOriginalScore(null);
       setCurrentScore(null);
       setBestScore(null);
@@ -139,12 +141,14 @@ export default function ScheduleOptimizer({
       let startingSchedule: Schedule;
       let preservedOriginalScore = originalScore;
       
-      if (currentOptimizedSchedule) {
+      const continuationSource = continuationScheduleRef.current || currentOptimizedSchedule;
+
+      if (continuationSource) {
         // Continue optimization from the last optimized result
-        startingSchedule = currentOptimizedSchedule.deepCopy();
+        startingSchedule = continuationSource.deepCopy();
         // Preserve the original score from the previous optimization
-        if (currentOptimizedSchedule.originalScore !== undefined) {
-          preservedOriginalScore = currentOptimizedSchedule.originalScore;
+        if (continuationSource.originalScore !== undefined) {
+          preservedOriginalScore = continuationSource.originalScore;
         }
         console.log(`🔄 Continuing optimization from previous result with score ${startingSchedule.score}`);
       } else {
@@ -179,10 +183,16 @@ export default function ScheduleOptimizer({
       const selectedStrategy = OPTIMIZATION_STRATEGIES.find(s => s.id === strategyId) || OPTIMIZATION_STRATEGIES[0];
 
       // Optimize the schedule (pass rules to optimize method)
+      const bestScheduleFromRunRef = { current: null as Schedule | null };
+
       const optimized = await startingSchedule.optimize(rules, iterations, info => {
         // Update progress and current score immediately (very lightweight)
         setProgress(info.progress);
         setCurrentScore(info.currentScore); // Always update current score for responsiveness
+
+        if (info.bestScheduleSnapshot) {
+          bestScheduleFromRunRef.current = info.bestScheduleSnapshot.deepCopy();
+        }
 
         // Always update scores on first few iterations to ensure they show
         const isEarlyIteration = info.iteration <= 5;
@@ -202,7 +212,7 @@ export default function ScheduleOptimizer({
           // Update best score and visualization
           setBestScore(info.bestScore);
           bestScoreRef.current = info.bestScore;
-          
+
           // Update visualization
           if (info.currentSchedule) {
             setRenderedSchedule(info.currentSchedule);
@@ -213,23 +223,27 @@ export default function ScheduleOptimizer({
         }
       }, selectedStrategy);
 
+      // Use the best snapshot tracked during this run for continuation reliability.
+      const finalizedOptimized = bestScheduleFromRunRef.current?.deepCopy() || optimized.deepCopy();
+
       // Final evaluation
-      optimized.evaluate(rules);
+      finalizedOptimized.evaluate(rules);
 
       // Ensure the optimized schedule has the correct originalScore
       if (preservedOriginalScore !== null) {
-        optimized.originalScore = preservedOriginalScore;
+        finalizedOptimized.originalScore = preservedOriginalScore;
       }
 
       // Store the optimized schedule for future continuation
-      setCurrentOptimizedSchedule(optimized);
+      setCurrentOptimizedSchedule(finalizedOptimized);
+      continuationScheduleRef.current = finalizedOptimized.deepCopy();
 
       // Clear live preview now that optimization is complete
       setRenderedSchedule(null);
 
       // Notify parent component
       if (onOptimizationComplete) {
-        onOptimizationComplete(optimized);
+        onOptimizationComplete(finalizedOptimized);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
@@ -242,6 +256,7 @@ export default function ScheduleOptimizer({
   const handleResetToOriginal = () => {
     if (window.confirm('Are you sure you want to reset to the original schedule? This will lose your current optimization progress.')) {
       setCurrentOptimizedSchedule(null);
+      continuationScheduleRef.current = null;
       setOriginalScore(null);
       setCurrentScore(null);
       setBestScore(null);
