@@ -286,7 +286,7 @@ export default function RuleConfiguration({
 
   const handlePriorityChange = (id: string, value: string) => {
     const priority = parseInt(value);
-    if (isNaN(priority) || priority < 1 || priority > 10) return;
+    if (isNaN(priority) || priority < 1) return;
 
     updateRules(rules.map(rule => (rule.id === id ? { ...rule, priority } : rule)));
   };
@@ -540,7 +540,6 @@ export default function RuleConfiguration({
                   value={rule.priority}
                   onChange={e => handlePriorityChange(rule.id, e.target.value)}
                   min="1"
-                  max="10"
                   className="w-16 p-1 border rounded text-center"
                 />
 
@@ -588,7 +587,7 @@ export default function RuleConfiguration({
         <div className="flex justify-between items-center mb-4">
           <div>
             <p className="text-sm text-gray-600 mb-1">
-              Configure rules and their priorities. Higher priority rules (1-10) will be satisfied first.
+              Configure rules and their priorities. Higher priority rules will be satisfied first.
             </p>
             <p className="text-xs text-gray-500">
               Rules are sorted by priority (highest first). <strong>Team rules</strong> focus on team-level constraints, 
@@ -673,7 +672,7 @@ export default function RuleConfiguration({
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Priority (1-10)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
             <div className="text-[11px] text-gray-500 mb-1">
               {resolvePriorityDescription(customRulePainUnit)}
             </div>
@@ -682,7 +681,6 @@ export default function RuleConfiguration({
               value={customRulePriority}
               onChange={e => setCustomRulePriority(parseInt(e.target.value))}
               min="1"
-              max="10"
               className="w-full p-2 border rounded"
             />
           </div>
