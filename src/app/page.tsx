@@ -442,9 +442,15 @@ export default function Home() {
                   You can either import players first and then a match schedule, or import only a match schedule. The
                   application will create teams automatically from the schedule if needed.
                 </p>
-                <div className="mt-2 flex items-center gap-2 text-xs text-blue-600">
-                  <span>💾</span>
-                  <span>Data is automatically saved to your browser&apos;s local storage</span>
+                <div className="mt-2 grid gap-1 text-xs text-blue-600">
+                  <div className="flex items-center gap-2">
+                    <span>💡</span>
+                    <span>Use AI Normalize buttons for messy source data and match lists.</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span>💾</span>
+                    <span>Data is automatically saved to your browser&apos;s local storage.</span>
+                  </div>
                 </div>
               </div>
 

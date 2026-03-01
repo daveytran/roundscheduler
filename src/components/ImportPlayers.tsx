@@ -190,15 +190,20 @@ export default function ImportPlayers({ onImportComplete }: ImportPlayersProps) 
   };
 
   return (
-    <div className="p-4 bg-white rounded shadow">
-      <h2 className="text-xl font-bold mb-4">Import Players & Clubs</h2>
+    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-xl font-bold text-slate-900">Import Players & Clubs</h2>
+        <span className="rounded-full bg-cyan-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-cyan-700">
+          AI-ready
+        </span>
+      </div>
 
       {!showResults ? (
         <div>
           <div className="mb-4">
-            <p className="text-sm text-gray-600 mb-4">
-              Upload a CSV file or paste tab-separated data with player information. The importer supports various
-              column formats:
+            <p className="mb-4 text-sm text-slate-600">
+              Upload a CSV file, paste spreadsheet data, or use AI normalization for messy exports. The importer
+              supports various column formats:
               <br />
               <strong>Required:</strong> Player Name
               <br />
@@ -217,6 +222,8 @@ export default function ImportPlayers({ onImportComplete }: ImportPlayersProps) 
           <SimpleFileImport
             onImport={handleFileImport}
             acceptedFileTypes=".csv,.tsv,.txt,text/plain,text/csv,text/tab-separated-values"
+            aiMode="players"
+            aiDescription="AI import can map alternate column names and lightly unstructured registration notes into the required player schema."
             placeholder="Paste your player data here (with headers)... 
 Example CSV:
 Name,Gender,Mixed Club,Gendered Club,Cloth Club
@@ -235,7 +242,7 @@ Sun Valley Storm		Hoxton Park Hedgehogs	Ahmed Chatila	M"
         <div>
           <div className="mb-4 flex justify-between items-center">
             <h3 className="font-bold">Import Successful!</h3>
-            <button onClick={resetImport} className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">
+            <button onClick={resetImport} className="px-4 py-2 bg-slate-600 text-white rounded hover:bg-slate-700">
               Import New File
             </button>
           </div>

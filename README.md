@@ -6,6 +6,7 @@ Round Scheduler is a NextJS application for tournament scheduling that allows to
 
 - Import players and teams from CSV or by pasting from spreadsheets
 - Import match schedules with team assignments
+- AI-assisted ingestion for players and schedule/match-list inputs (Vercel AI SDK)
 - Configure different scheduling formats (division blocks, etc.)
 - Set up custom scheduling rules with priority levels
 - Optimize schedules to minimize rule violations
@@ -16,7 +17,7 @@ Round Scheduler is a NextJS application for tournament scheduling that allows to
 
 ### Prerequisites
 
-- Node.js 14.x or later
+- Node.js 20.9.x or later
 - npm or yarn
 
 ### Installation
@@ -45,6 +46,16 @@ yarn dev
 ```
 
 4. Open [http://localhost:3000](http://localhost:3000) in your browser
+
+### Optional: Enable AI Import
+
+Set an OpenAI key to enable the `AI Normalize + Import` buttons in the import UI:
+
+```bash
+export OPENAI_API_KEY=your_key_here
+```
+
+The app uses a Next.js API route (`/api/ingest`) powered by Vercel AI SDK to convert messy text/CSV/TSV into the schema expected by the existing importers.
 
 ## Usage Guide
 
@@ -102,15 +113,24 @@ View the optimized schedule by time slot or field, with rule violations highligh
 
 ## Custom Rules
 
-You can create custom rules by writing JavaScript functions that evaluate a schedule and return an array of violations. Example:
+You can create custom rules by writing JavaScript rule-body logic that pushes violations into the provided `violations` array. Example:
 
 ```javascript
-function evaluate(schedule) {
-  const violations = [];
-  // Check if any team plays more than 3 games in a row on the same field
-  // Add violations to the array
-  return violations;
-}
+const teamMatches = ScheduleHelpers.groupMatchesByTeam(schedule.matches);
+
+Object.entries(teamMatches).forEach(([teamName, matches]) => {
+  const sorted = [...matches].sort((a, b) => a.timeSlot - b.timeSlot);
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (ScheduleHelpers.areConsecutive(sorted[i], sorted[i + 1])) {
+      violations.push({
+        rule: "Avoid back-to-back games",
+        description: `Team ${teamName} has consecutive games`,
+        matches: [sorted[i], sorted[i + 1]],
+        level: "warning"
+      });
+    }
+  }
+});
 ```
 
 ## Development

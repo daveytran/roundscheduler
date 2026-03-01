@@ -115,15 +115,20 @@ export default function ImportSchedule({ teams, rules = [], onImportComplete }: 
   };
 
   return (
-    <div className="p-4 bg-white rounded shadow">
-      <h2 className="text-xl font-bold mb-4">Import Match Schedule</h2>
+    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-xl font-bold text-slate-900">Import Match Schedule</h2>
+        <span className="rounded-full bg-cyan-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-cyan-700">
+          AI-ready
+        </span>
+      </div>
 
       {!showResults ? (
         <div>
           <div className="mb-4">
-            <p className="text-sm text-gray-600 mb-4">
-              Upload a CSV file or paste tab-separated data with match schedule information. The importer supports
-              various column formats:
+            <p className="text-sm text-slate-600 mb-4">
+              Upload a CSV file, paste spreadsheet data, or use AI normalization for free-form match lists. The
+              importer supports various column formats:
               <br />
               <strong>Required:</strong> Division, Home Team, Away Team
               <br />
@@ -150,6 +155,8 @@ export default function ImportSchedule({ teams, rules = [], onImportComplete }: 
           <SimpleFileImport
             onImport={handleFileImport}
             acceptedFileTypes=".csv,.tsv,.txt,text/plain,text/csv,text/tab-separated-values"
+            aiMode="schedule"
+            aiDescription="AI import can convert match lists from docs, chats, or mixed table layouts into schedule rows this app can parse."
             placeholder="Paste your schedule data here (with headers)... 
 Example CSV:
 Time,Division,Field,Team1,Team2,Referee
@@ -168,7 +175,7 @@ Mixed Foam	MX2	9:30	Fairfield Falcons	UTS Lizards	1	Fairlight Ascendents
         <div>
           <div className="mb-4 flex justify-between items-center">
             <h3 className="font-bold">Import Successful!</h3>
-            <button onClick={resetImport} className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">
+            <button onClick={resetImport} className="px-4 py-2 bg-slate-600 text-white rounded hover:bg-slate-700">
               Import New File
             </button>
           </div>
