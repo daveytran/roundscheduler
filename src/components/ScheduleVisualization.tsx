@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { Schedule } from '../models/Schedule'
 import { Match } from '../models/Match'
 import { RuleViolation } from '../models/RuleViolation'
@@ -21,18 +21,12 @@ interface ViolationInfo {
 }
 
 export default function ScheduleVisualization({ schedule }: ScheduleVisualizationProps) {
-  const [violations, setViolations] = useState<RuleViolation[]>([])
+  const violations: RuleViolation[] = schedule?.violations || []
   const [viewMode, setViewMode] = useState<'by_time' | 'by_field'>('by_time')
   const [selectedDivision, setSelectedDivision] = useState<string>('all')
   const [showSpecialActivities, setShowSpecialActivities] = useState<boolean>(true)
   const [showNotes, setShowNotes] = useState<boolean>(false)
   const [isViolationsExpanded, setIsViolationsExpanded] = useState<boolean>(false)
-
-  useEffect(() => {
-    if (schedule) {
-      setViolations(schedule.violations || [])
-    }
-  }, [schedule])
 
   // Get violations for a specific match using the rule system
   const getMatchViolations = (match: Match): ViolationInfo[] => {

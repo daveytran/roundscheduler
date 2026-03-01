@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import { CustomRuleDefinitionData, RuleCategory, RuleConfigurationData } from '../lib/localStorage';
 import {
   RULES_REGISTRY,
@@ -166,33 +166,21 @@ const convertRulesToConfigurations = (rules: Rule[]): RuleConfigurationData[] =>
     };
   });
 
-const getConfigurationsSignature = (configs?: RuleConfigurationData[]): string => {
-  if (!configs) return '[]';
-  return JSON.stringify(
-    configs.map(config => ({
-      id: config.id,
-      name: config.name,
-      enabled: config.enabled,
-      priority: config.priority,
-      type: config.type,
-      category: config.category,
-      configuredParams: config.configuredParams || null,
-      customDefinition: config.customDefinition || null,
-      code: config.code || null,
-      baseRuleId: config.baseRuleId || null,
-    }))
-  );
-};
+const getRulesFromInitialConfigurations = (initialConfigurations?: RuleConfigurationData[]): Rule[] =>
+  initialConfigurations && initialConfigurations.length > 0
+    ? convertConfigurationsToRules(initialConfigurations)
+    : getDefaultRules();
 
 export default function RuleConfiguration({
   initialConfigurations,
   onConfigurationsChange,
   onRulesChange,
 }: RuleConfigurationProps) {
-  const [rules, setRules] = useState<Rule[]>(
-    initialConfigurations && initialConfigurations.length > 0
-      ? convertConfigurationsToRules(initialConfigurations)
-      : getDefaultRules()
+  const [fallbackRules, setFallbackRules] = useState<Rule[]>(() => getRulesFromInitialConfigurations());
+  const usesExternalConfigurations = initialConfigurations !== undefined;
+  const rules = useMemo(
+    () => (usesExternalConfigurations ? getRulesFromInitialConfigurations(initialConfigurations) : fallbackRules),
+    [usesExternalConfigurations, initialConfigurations, fallbackRules]
   );
   const [customRuleName, setCustomRuleName] = useState('');
   const [customRuleCode, setCustomRuleCode] = useState<string>(DEFAULT_CUSTOM_RULE_TEMPLATE);
@@ -209,49 +197,25 @@ export default function RuleConfiguration({
     setCustomRuleCategory(category);
   };
 
-  // Keep local rule state in sync with parent-provided configurations.
-  useEffect(() => {
-    const nextRules =
-      initialConfigurations && initialConfigurations.length > 0
-        ? convertConfigurationsToRules(initialConfigurations)
-        : getDefaultRules();
-
-    setRules(prevRules => {
-      const prevSignature = getConfigurationsSignature(convertRulesToConfigurations(prevRules));
-      const nextSignature = getConfigurationsSignature(convertRulesToConfigurations(nextRules));
-      return prevSignature === nextSignature ? prevRules : nextRules;
-    });
-  }, [initialConfigurations]);
-
-  // Convert Rule[] to RuleConfigurationData[] and notify parent when rules change
-  useEffect(() => {
-    const configurations = convertRulesToConfigurations(rules);
-
-    if (onConfigurationsChange) {
-      const localSignature = getConfigurationsSignature(configurations);
-      const propSignature = getConfigurationsSignature(initialConfigurations);
-      if (localSignature !== propSignature) {
-        onConfigurationsChange(configurations);
-      }
+  const updateRules = (nextRules: Rule[]) => {
+    if (!usesExternalConfigurations) {
+      setFallbackRules(nextRules);
     }
-  }, [rules, onConfigurationsChange, initialConfigurations]);
 
-  // Create rule instances and notify parent when configurations change
-  useEffect(() => {
+    const configurations = convertRulesToConfigurations(nextRules);
+    onConfigurationsChange?.(configurations);
+
     if (onRulesChange) {
-      const configurations = convertRulesToConfigurations(rules);
-
       const enabledRules = configurations
         .filter(config => config.enabled)
         .map(config => createRuleFromConfiguration(config))
         .filter(rule => rule !== null);
-
       onRulesChange(enabledRules);
     }
-  }, [rules, onRulesChange]);
+  };
 
   const handleParameterChange = (ruleId: string, paramName: string, value: any) => {
-    setRules(
+    updateRules(
       rules.map(rule => {
         if (rule.id === ruleId && (rule.type === 'builtin' || rule.type === 'duplicated')) {
           return {
@@ -268,14 +232,14 @@ export default function RuleConfiguration({
   };
 
   const handleToggleRule = (id: string) => {
-    setRules(rules.map(rule => (rule.id === id ? { ...rule, enabled: !rule.enabled } : rule)));
+    updateRules(rules.map(rule => (rule.id === id ? { ...rule, enabled: !rule.enabled } : rule)));
   };
 
   const handlePriorityChange = (id: string, value: string) => {
     const priority = parseInt(value);
     if (isNaN(priority) || priority < 1 || priority > 10) return;
 
-    setRules(rules.map(rule => (rule.id === id ? { ...rule, priority } : rule)));
+    updateRules(rules.map(rule => (rule.id === id ? { ...rule, priority } : rule)));
   };
 
   const handleAddCustomRule = () => {
@@ -305,7 +269,7 @@ export default function RuleConfiguration({
         customDefinition: validation.definition,
       } satisfies CustomRuleConfig;
 
-      setRules([...rules, newRule]);
+      updateRules([...rules, newRule]);
 
       // Reset form
       resetCustomRuleForm(customRuleCategory === 'team' ? 3 : 2, customRuleCategory);
@@ -315,7 +279,7 @@ export default function RuleConfiguration({
   };
 
   const handleRemoveRule = (id: string) => {
-    setRules(rules.filter(rule => rule.id !== id));
+    updateRules(rules.filter(rule => rule.id !== id));
   };
 
   const handleDuplicateRule = (rule: BuiltinRule) => {
@@ -333,7 +297,7 @@ export default function RuleConfiguration({
       baseRuleId: rule.id,
     };
 
-    setRules([...rules, duplicatedRule]);
+    updateRules([...rules, duplicatedRule]);
   };
 
   const handleEditRule = (rule: CustomRuleConfig) => {
@@ -363,7 +327,7 @@ export default function RuleConfiguration({
       }
 
       // Update the rule
-      setRules(
+      updateRules(
         rules.map(rule =>
           rule.id === editingRule?.originalId
             ? {

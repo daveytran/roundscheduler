@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import ImportPlayers from '../components/ImportPlayers';
 import ImportSchedule from '../components/ImportSchedule';
 import ScheduleFormatOptions from '../components/ScheduleFormatOptions';
@@ -19,7 +19,7 @@ import {
   RuleConfigurationData,
   OptimizerSettings,
 } from '../lib/localStorage';
-import { CustomRule, ScheduleRule } from '../models/ScheduleRule';
+import { ScheduleRule } from '../models/ScheduleRule';
 import {
   getDefaultRuleConfigurations,
   createRuleFromConfiguration,
@@ -40,83 +40,108 @@ const defaultOptimizerSettings: OptimizerSettings = {
 // Use the centralized rule creation function from the registry
 // (The createRuleFromConfiguration function is imported from rules-registry)
 
+type HomeInitialState = {
+  players: Player[];
+  teams: TeamsMap | null;
+  matches: Match[];
+  formattedMatches: Match[];
+  ruleConfigurations: RuleConfigurationData[];
+  optimizerSettings: OptimizerSettings;
+  schedule: Schedule | null;
+  dataLoadedFromStorage: boolean;
+  lastUpdated: string;
+  duplicateRulesDetected: boolean;
+};
+
+const getInitialHomeState = (): HomeInitialState => {
+  const defaultState: HomeInitialState = {
+    players: [],
+    teams: null,
+    matches: [],
+    formattedMatches: [],
+    ruleConfigurations: defaultRuleConfigurations,
+    optimizerSettings: defaultOptimizerSettings,
+    schedule: null,
+    dataLoadedFromStorage: false,
+    lastUpdated: '',
+    duplicateRulesDetected: false,
+  };
+
+  if (typeof window === 'undefined' || !hasStoredData()) {
+    return defaultState;
+  }
+
+  const savedData = loadFromLocalStorage();
+  if (!savedData.lastUpdated) {
+    return defaultState;
+  }
+
+  let duplicateRulesDetected = false;
+  let effectiveRuleConfigurations = defaultRuleConfigurations;
+
+  if (savedData.ruleConfigurations) {
+    const ruleIds = savedData.ruleConfigurations.map(r => r.id);
+    const hasDuplicates = ruleIds.length !== new Set(ruleIds).size;
+
+    if (hasDuplicates) {
+      console.warn('Duplicate rules detected in localStorage.');
+      duplicateRulesDetected = true;
+    }
+
+    effectiveRuleConfigurations = mergeRuleConfigurations(savedData.ruleConfigurations);
+  }
+
+  let restoredSchedule: Schedule | null = null;
+  if (savedData.schedule || savedData.formattedMatches) {
+    const matchesToUse = savedData.schedule?.matches || savedData.formattedMatches || [];
+    restoredSchedule = new Schedule(matchesToUse);
+
+    if (savedData.schedule) {
+      restoredSchedule.score = savedData.schedule.score || 0;
+      restoredSchedule.originalScore = savedData.schedule.originalScore;
+
+      const ruleInstances = effectiveRuleConfigurations
+        .map(createRuleFromConfiguration)
+        .filter((rule): rule is ScheduleRule => rule !== null);
+      restoredSchedule.evaluate(ruleInstances);
+    }
+  }
+
+  return {
+    players: savedData.players || [],
+    teams: savedData.teams ?? null,
+    matches: savedData.matches || [],
+    formattedMatches: savedData.formattedMatches || [],
+    ruleConfigurations: effectiveRuleConfigurations,
+    optimizerSettings: savedData.optimizerSettings || defaultOptimizerSettings,
+    schedule: restoredSchedule,
+    dataLoadedFromStorage: true,
+    lastUpdated: savedData.lastUpdated,
+    duplicateRulesDetected,
+  };
+};
+
 export default function Home() {
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [teams, setTeams] = useState<TeamsMap | null>(null);
-  const [matches, setMatches] = useState<Match[]>([]);
-  const [formattedMatches, setFormattedMatches] = useState<Match[]>([]);
-  const [schedulingRules, setSchedulingRules] = useState<ScheduleRule[]>([]);
-  const [ruleConfigurations, setRuleConfigurations] = useState<RuleConfigurationData[]>(defaultRuleConfigurations);
-  const [optimizerSettings, setOptimizerSettings] = useState<OptimizerSettings>(defaultOptimizerSettings);
-  const [schedule, setSchedule] = useState<Schedule | null>(null);
+  const [initialState] = useState<HomeInitialState>(() => getInitialHomeState());
+  const [players, setPlayers] = useState<Player[]>(initialState.players);
+  const [teams, setTeams] = useState<TeamsMap | null>(initialState.teams);
+  const [matches, setMatches] = useState<Match[]>(initialState.matches);
+  const [formattedMatches, setFormattedMatches] = useState<Match[]>(initialState.formattedMatches);
+  const [ruleConfigurations, setRuleConfigurations] = useState<RuleConfigurationData[]>(initialState.ruleConfigurations);
+  const [optimizerSettings, setOptimizerSettings] = useState<OptimizerSettings>(initialState.optimizerSettings);
+  const [schedule, setSchedule] = useState<Schedule | null>(initialState.schedule);
   const [activeTab, setActiveTab] = useState<string>('import');
-  const [dataLoadedFromStorage, setDataLoadedFromStorage] = useState<boolean>(false);
-  const [lastUpdated, setLastUpdated] = useState<string>('');
-  const [duplicateRulesDetected, setDuplicateRulesDetected] = useState<boolean>(false);
+  const [dataLoadedFromStorage, setDataLoadedFromStorage] = useState<boolean>(initialState.dataLoadedFromStorage);
+  const [lastUpdated, setLastUpdated] = useState<string>(initialState.lastUpdated);
+  const [duplicateRulesDetected, setDuplicateRulesDetected] = useState<boolean>(initialState.duplicateRulesDetected);
 
-  // Initialize rules from configurations
-  useEffect(() => {
-    const ruleInstances = ruleConfigurations.map(createRuleFromConfiguration).filter(rule => rule !== null);
-    setSchedulingRules(ruleInstances);
-  }, [ruleConfigurations]);
-
-  // Load data from localStorage on component mount
-  useEffect(() => {
-    if (typeof window === 'undefined' || !hasStoredData()) return;
-
-    const savedData = loadFromLocalStorage();
-    if (!savedData.lastUpdated) return;
-
-    setPlayers(savedData.players || []);
-    setTeams(savedData.teams ?? null);
-    setMatches(savedData.matches || []);
-    setFormattedMatches(savedData.formattedMatches || []);
-
-    // Load rule configurations and optimizer settings, merging with new defaults
-    let effectiveRuleConfigurations = defaultRuleConfigurations;
-    if (savedData.ruleConfigurations) {
-      // Check for duplicates before merging
-      const ruleIds = savedData.ruleConfigurations.map(r => r.id);
-      const uniqueIds = new Set(ruleIds);
-      const hasDuplicates = ruleIds.length !== uniqueIds.size;
-
-      if (hasDuplicates) {
-        console.warn('🚨 Duplicate rules detected in localStorage!');
-        setDuplicateRulesDetected(true);
-      }
-
-      effectiveRuleConfigurations = mergeRuleConfigurations(savedData.ruleConfigurations);
-    }
-    setRuleConfigurations(effectiveRuleConfigurations);
-
-    if (savedData.optimizerSettings) {
-      setOptimizerSettings(savedData.optimizerSettings);
-    }
-
-    // Create proper Schedule instance to ensure methods are available
-    if (savedData.schedule || savedData.formattedMatches) {
-      const matchesToUse = savedData.schedule?.matches || savedData.formattedMatches || [];
-      const newSchedule = new Schedule(matchesToUse);
-
-      if (savedData.schedule) {
-        newSchedule.score = savedData.schedule.score || 0;
-        newSchedule.originalScore = savedData.schedule.originalScore;
-
-        // Re-evaluate with the effective rule configuration to refresh violations/scores.
-        const ruleInstances = effectiveRuleConfigurations
-          .map(createRuleFromConfiguration)
-          .filter(rule => rule !== null);
-        newSchedule.evaluate(ruleInstances);
-      }
-
-      setSchedule(newSchedule);
-    } else {
-      setSchedule(null);
-    }
-
-    setLastUpdated(savedData.lastUpdated);
-    setDataLoadedFromStorage(true);
-  }, []);
+  const schedulingRules = useMemo(
+    () =>
+      ruleConfigurations
+        .map(createRuleFromConfiguration)
+        .filter((rule): rule is ScheduleRule => rule !== null),
+    [ruleConfigurations]
+  );
 
   const handlePlayersImport = (importedPlayers: Player[], importedTeams: TeamsMap) => {
     setPlayers(importedPlayers);
@@ -187,12 +212,6 @@ export default function Home() {
   const handleOptimizerSettingsChange = useCallback((settings: OptimizerSettings) => {
     setOptimizerSettings(settings);
     saveToLocalStorage({ optimizerSettings: settings });
-  }, []);
-
-  const handleRulesChange = useCallback((rules: CustomRule[]) => {
-    setSchedulingRules(rules);
-    // Note: Don't save rule instances to localStorage as they contain functions
-    // Rules will be recreated from configuration when needed
   }, []);
 
   // Define a type for the schedule-like object that might be passed in
@@ -484,7 +503,6 @@ export default function Home() {
             <RuleConfiguration
               initialConfigurations={ruleConfigurations}
               onConfigurationsChange={handleRuleConfigurationsChange}
-              onRulesChange={handleRulesChange}
             />
           </div>
         )}
