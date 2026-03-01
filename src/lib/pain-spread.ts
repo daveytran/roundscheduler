@@ -1,6 +1,8 @@
 import { RuleViolation } from '../models/RuleViolation'
 
-export const DEFAULT_SPREAD_PENALTY_WEIGHT = 0.35
+export const DEFAULT_CONCENTRATION_PENALTY_WEIGHT = 0.35
+// Backward-compatible alias for older code paths.
+export const DEFAULT_SPREAD_PENALTY_WEIGHT = DEFAULT_CONCENTRATION_PENALTY_WEIGHT
 
 type EntityType = 'team' | 'player'
 
@@ -26,6 +28,9 @@ export interface PainSpreadGroupMetrics {
 
 export interface PainSpreadMetrics {
   totalPainScore: number
+  concentrationPenaltyWeight: number
+  concentrationPenaltyScore: number
+  // Backward-compatible aliases. Prefer concentrationPenalty* fields.
   spreadPenaltyWeight: number
   spreadPenaltyScore: number
   objectiveScore: number
@@ -164,7 +169,7 @@ function buildGroupMetrics(
 export function calculatePainSpreadMetrics(
   violations: RuleViolation[],
   totalPainScore: number,
-  spreadPenaltyWeight = DEFAULT_SPREAD_PENALTY_WEIGHT
+  concentrationPenaltyWeight = DEFAULT_CONCENTRATION_PENALTY_WEIGHT
 ): PainSpreadMetrics {
   const effectiveTotalPainScore = Number.isFinite(totalPainScore) && totalPainScore > 0 ? totalPainScore : 0
   const fallbackPainPerViolation =
@@ -205,15 +210,19 @@ export function calculatePainSpreadMetrics(
       ? groupsWithPain.reduce((sum, group) => sum + group.normalizedConcentration, 0) / groupsWithPain.length
       : 0
 
-  const spreadPenaltyScore =
-    effectiveTotalPainScore > 0 ? effectiveTotalPainScore * combinedConcentration * spreadPenaltyWeight : 0
-  const objectiveScore = effectiveTotalPainScore + spreadPenaltyScore
+  const concentrationPenaltyScore =
+    effectiveTotalPainScore > 0
+      ? effectiveTotalPainScore * combinedConcentration * concentrationPenaltyWeight
+      : 0
+  const objectiveScore = effectiveTotalPainScore + concentrationPenaltyScore
   const combinedSpread = groupsWithPain.length > 0 ? 1 - combinedConcentration : 0
 
   return {
     totalPainScore: round(effectiveTotalPainScore),
-    spreadPenaltyWeight: round(spreadPenaltyWeight, 4),
-    spreadPenaltyScore: round(spreadPenaltyScore),
+    concentrationPenaltyWeight: round(concentrationPenaltyWeight, 4),
+    concentrationPenaltyScore: round(concentrationPenaltyScore),
+    spreadPenaltyWeight: round(concentrationPenaltyWeight, 4),
+    spreadPenaltyScore: round(concentrationPenaltyScore),
     objectiveScore: round(objectiveScore),
     combinedConcentration: round(combinedConcentration, 4),
     combinedSpread: round(combinedSpread, 4),

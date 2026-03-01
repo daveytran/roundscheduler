@@ -231,6 +231,7 @@ export default function Home() {
     matches?: Match[];
     score?: number;
     objectiveScore?: number;
+    concentrationPenaltyScore?: number;
     spreadPenaltyScore?: number;
     painScore?: number;
     originalScore?: number;
@@ -255,11 +256,14 @@ export default function Home() {
       } else {
         newSchedule.objectiveScore = newSchedule.score;
       }
-      if (typeof optimizedSchedule.spreadPenaltyScore === 'number') {
-        newSchedule.spreadPenaltyScore = optimizedSchedule.spreadPenaltyScore;
-      } else {
-        newSchedule.spreadPenaltyScore = Math.max(0, newSchedule.objectiveScore - newSchedule.score);
-      }
+      const concentrationPenalty =
+        typeof optimizedSchedule.concentrationPenaltyScore === 'number'
+          ? optimizedSchedule.concentrationPenaltyScore
+          : typeof optimizedSchedule.spreadPenaltyScore === 'number'
+            ? optimizedSchedule.spreadPenaltyScore
+            : Math.max(0, newSchedule.objectiveScore - newSchedule.score);
+      newSchedule.concentrationPenaltyScore = concentrationPenalty;
+      newSchedule.spreadPenaltyScore = concentrationPenalty;
       if (optimizedSchedule.originalScore !== undefined) {
         newSchedule.originalScore = optimizedSchedule.originalScore;
       }
@@ -567,7 +571,7 @@ export default function Home() {
                           ) : null}
                         </p>
                         <p className="text-sm text-gray-600">
-                          <span className="font-medium">Spread penalty:</span> {schedule.spreadPenaltyScore.toFixed(2)}
+                          <span className="font-medium">Concentration penalty:</span> {schedule.concentrationPenaltyScore.toFixed(2)}
                         </p>
                         <p className="text-sm text-gray-600">
                           <span className="font-medium">Objective score (optimized):</span> {schedule.objectiveScore.toFixed(2)}

@@ -1122,8 +1122,8 @@ export default function ScheduleVisualization({
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                   <h4 className="text-sm font-semibold text-gray-800">Pain Spread</h4>
                   <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1 rounded">
-                    Objective: {filteredPainSpread.objectiveScore.toFixed(2)} (Pain {filteredPainSpread.totalPainScore} + Penalty{' '}
-                    {filteredPainSpread.spreadPenaltyScore.toFixed(2)})
+                    Objective: {filteredPainSpread.objectiveScore.toFixed(2)} (Pain {filteredPainSpread.totalPainScore} + Concentration penalty{' '}
+                    {filteredPainSpread.concentrationPenaltyScore.toFixed(2)})
                   </span>
                 </div>
 

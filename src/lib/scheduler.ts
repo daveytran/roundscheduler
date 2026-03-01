@@ -20,6 +20,9 @@ export interface OptimizationProgressInfo {
   bestObjectiveScore?: number;
   currentPainScore?: number;
   bestPainScore?: number;
+  currentConcentrationPenaltyScore?: number;
+  bestConcentrationPenaltyScore?: number;
+  // Backward-compatible aliases. Prefer concentration penalty fields.
   currentSpreadPenaltyScore?: number;
   bestSpreadPenaltyScore?: number;
   currentSchedule?: Schedule; // Current schedule being evaluated

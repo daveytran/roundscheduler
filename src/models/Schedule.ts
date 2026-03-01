@@ -24,6 +24,8 @@ export class Schedule {
   violations: RuleViolation[]
   score: number
   painScore: number
+  concentrationPenaltyScore: number
+  // Backward-compatible alias for older UI/state paths.
   spreadPenaltyScore: number
   objectiveScore: number
   painSpreadMetrics: PainSpreadMetrics
@@ -59,6 +61,7 @@ export class Schedule {
     this.violations = []
     this.score = 0 // Lower is better (fewer rule violations)
     this.painScore = 0
+    this.concentrationPenaltyScore = 0
     this.spreadPenaltyScore = 0
     this.objectiveScore = 0
     this.painSpreadMetrics = calculatePainSpreadMetrics([], 0)
@@ -82,6 +85,7 @@ export class Schedule {
     this.violations = []
     this.score = 0
     this.painScore = 0
+    this.concentrationPenaltyScore = 0
     this.spreadPenaltyScore = 0
     this.objectiveScore = 0
 
@@ -108,12 +112,13 @@ export class Schedule {
 
     this.score = this.painScore
     this.painSpreadMetrics = calculatePainSpreadMetrics(this.violations, this.painScore)
-    this.spreadPenaltyScore = this.painSpreadMetrics.spreadPenaltyScore
+    this.concentrationPenaltyScore = this.painSpreadMetrics.concentrationPenaltyScore
+    this.spreadPenaltyScore = this.concentrationPenaltyScore
     this.objectiveScore = this.painSpreadMetrics.objectiveScore
 
     if (verbose) {
       console.log(
-        `📊 Schedule evaluated: ${this.violations.length} total violations, pain = ${this.score}, spread penalty = ${this.spreadPenaltyScore}, objective = ${this.objectiveScore}`
+        `📊 Schedule evaluated: ${this.violations.length} total violations, pain = ${this.score}, concentration penalty = ${this.concentrationPenaltyScore}, objective = ${this.objectiveScore}`
       )
     }
     return this.score
@@ -942,6 +947,8 @@ export class Schedule {
       bestObjectiveScore: bestSchedule.objectiveScore,
       currentPainScore: currentSchedule.score,
       bestPainScore: bestSchedule.score,
+      currentConcentrationPenaltyScore: currentSchedule.concentrationPenaltyScore,
+      bestConcentrationPenaltyScore: bestSchedule.concentrationPenaltyScore,
       currentSpreadPenaltyScore: currentSchedule.spreadPenaltyScore,
       bestSpreadPenaltyScore: bestSchedule.spreadPenaltyScore,
       currentSchedule: currentSchedule,
@@ -981,6 +988,8 @@ export class Schedule {
           bestObjectiveScore: bestScheduleSnapshot.objectiveScore,
           currentPainScore: currentSchedule.score,
           bestPainScore: bestScheduleSnapshot.score,
+          currentConcentrationPenaltyScore: currentSchedule.concentrationPenaltyScore,
+          bestConcentrationPenaltyScore: bestScheduleSnapshot.concentrationPenaltyScore,
           currentSpreadPenaltyScore: currentSchedule.spreadPenaltyScore,
           bestSpreadPenaltyScore: bestScheduleSnapshot.spreadPenaltyScore,
           currentSchedule: currentSchedule,
@@ -1028,6 +1037,8 @@ export class Schedule {
           bestObjectiveScore: immediateBestSnapshot.objectiveScore,
           currentPainScore: currentSchedule.score,
           bestPainScore: immediateBestSnapshot.score,
+          currentConcentrationPenaltyScore: currentSchedule.concentrationPenaltyScore,
+          bestConcentrationPenaltyScore: immediateBestSnapshot.concentrationPenaltyScore,
           currentSpreadPenaltyScore: currentSchedule.spreadPenaltyScore,
           bestSpreadPenaltyScore: immediateBestSnapshot.spreadPenaltyScore,
           currentSchedule: currentSchedule,
@@ -1050,6 +1061,8 @@ export class Schedule {
       bestObjectiveScore: finalBestScheduleSnapshot.objectiveScore,
       currentPainScore: currentSchedule.score,
       bestPainScore: finalBestScheduleSnapshot.score,
+      currentConcentrationPenaltyScore: currentSchedule.concentrationPenaltyScore,
+      bestConcentrationPenaltyScore: finalBestScheduleSnapshot.concentrationPenaltyScore,
       currentSpreadPenaltyScore: currentSchedule.spreadPenaltyScore,
       bestSpreadPenaltyScore: finalBestScheduleSnapshot.spreadPenaltyScore,
       currentSchedule: currentSchedule,
@@ -1220,6 +1233,7 @@ export class Schedule {
     const copy = new Schedule(copyMatches(this.matches))
     copy.score = this.score
     copy.painScore = this.painScore
+    copy.concentrationPenaltyScore = this.concentrationPenaltyScore
     copy.spreadPenaltyScore = this.spreadPenaltyScore
     copy.objectiveScore = this.objectiveScore
     copy.painSpreadMetrics = {

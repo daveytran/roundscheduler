@@ -61,8 +61,8 @@ export default function ScheduleOptimizer({
   const [bestScore, setBestScore] = useState<number | null>(null); // objective
   const [currentPainScore, setCurrentPainScore] = useState<number | null>(null);
   const [bestPainScore, setBestPainScore] = useState<number | null>(null);
-  const [currentSpreadPenaltyScore, setCurrentSpreadPenaltyScore] = useState<number | null>(null);
-  const [bestSpreadPenaltyScore, setBestSpreadPenaltyScore] = useState<number | null>(null);
+  const [currentConcentrationPenaltyScore, setCurrentConcentrationPenaltyScore] = useState<number | null>(null);
+  const [bestConcentrationPenaltyScore, setBestConcentrationPenaltyScore] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [renderedSchedule, setRenderedSchedule] = useState<Schedule | null>(null);
   const [showLiveVisualization, setShowLiveVisualization] = useState(true);
@@ -97,8 +97,8 @@ export default function ScheduleOptimizer({
       setBestScore(null);
       setCurrentPainScore(null);
       setBestPainScore(null);
-      setCurrentSpreadPenaltyScore(null);
-      setBestSpreadPenaltyScore(null);
+      setCurrentConcentrationPenaltyScore(null);
+      setBestConcentrationPenaltyScore(null);
       setRenderedSchedule(null);
       setError(null);
       bestScoreRef.current = null;
@@ -212,8 +212,8 @@ export default function ScheduleOptimizer({
       setBestScore(startingObjectiveScore);
       setCurrentPainScore(startingPainScore);
       setBestPainScore(startingPainScore);
-      setCurrentSpreadPenaltyScore(startingSchedule.spreadPenaltyScore);
-      setBestSpreadPenaltyScore(startingSchedule.spreadPenaltyScore);
+      setCurrentConcentrationPenaltyScore(startingSchedule.concentrationPenaltyScore);
+      setBestConcentrationPenaltyScore(startingSchedule.concentrationPenaltyScore);
       bestScoreRef.current = startingObjectiveScore;
       setLiveBaselineViolationCount(startingViolationCount);
       setLiveBestViolationCount(startingViolationCount);
@@ -244,8 +244,10 @@ export default function ScheduleOptimizer({
         if (info.currentPainScore !== undefined) {
           setCurrentPainScore(info.currentPainScore);
         }
-        if (info.currentSpreadPenaltyScore !== undefined) {
-          setCurrentSpreadPenaltyScore(info.currentSpreadPenaltyScore);
+        const currentConcentrationPenalty =
+          info.currentConcentrationPenaltyScore ?? info.currentSpreadPenaltyScore;
+        if (currentConcentrationPenalty !== undefined) {
+          setCurrentConcentrationPenaltyScore(currentConcentrationPenalty);
         }
 
         if (info.bestScheduleSnapshot) {
@@ -272,8 +274,10 @@ export default function ScheduleOptimizer({
           if (info.bestPainScore !== undefined) {
             setBestPainScore(info.bestPainScore);
           }
-          if (info.bestSpreadPenaltyScore !== undefined) {
-            setBestSpreadPenaltyScore(info.bestSpreadPenaltyScore);
+          const bestConcentrationPenalty =
+            info.bestConcentrationPenaltyScore ?? info.bestSpreadPenaltyScore;
+          if (bestConcentrationPenalty !== undefined) {
+            setBestConcentrationPenaltyScore(bestConcentrationPenalty);
           }
           bestScoreRef.current = objectiveBestScore;
 
@@ -338,8 +342,8 @@ export default function ScheduleOptimizer({
       setBestScore(null);
       setCurrentPainScore(null);
       setBestPainScore(null);
-      setCurrentSpreadPenaltyScore(null);
-      setBestSpreadPenaltyScore(null);
+      setCurrentConcentrationPenaltyScore(null);
+      setBestConcentrationPenaltyScore(null);
       setRenderedSchedule(null);
       setError(null);
       bestScoreRef.current = null;
@@ -375,7 +379,7 @@ export default function ScheduleOptimizer({
 
       <div className="mb-4">
         <p className="text-sm text-gray-600 mb-2">
-          The optimizer uses simulated annealing to reduce total pain points while spreading pain more fairly across teams and players. 
+          The optimizer uses simulated annealing to reduce total pain points while avoiding concentrated pain on a small set of teams or players. 
           {isStartingFromOptimized 
             ? ' Continue optimizing from your current result, or reset to start over.'
             : hasMultipleStrategies
@@ -462,7 +466,7 @@ export default function ScheduleOptimizer({
               </span>
             </div>
             <p className="text-xs text-blue-700 mt-1">
-              Next optimization starts from this result. Pain: {currentOptimizedSchedule?.score}, spread penalty: {currentOptimizedSchedule?.spreadPenaltyScore.toFixed(2)}.
+              Next optimization starts from this result. Pain: {currentOptimizedSchedule?.score}, concentration penalty: {currentOptimizedSchedule?.concentrationPenaltyScore.toFixed(2)}.
             </p>
           </div>
         )}
@@ -533,9 +537,9 @@ export default function ScheduleOptimizer({
                     <span className="ml-2 text-xs text-green-600">(improvement!)</span> 
                   )}
                 </p>
-                {(currentPainScore !== null || currentSpreadPenaltyScore !== null) && (
+                {(currentPainScore !== null || currentConcentrationPenaltyScore !== null) && (
                   <p className="text-xs text-blue-700">
-                    Pain: {currentPainScore ?? '-'} | Spread penalty: {currentSpreadPenaltyScore?.toFixed(2) ?? '-'}
+                    Pain: {currentPainScore ?? '-'} | Concentration penalty: {currentConcentrationPenaltyScore?.toFixed(2) ?? '-'}
                   </p>
                 )}
               </div>
@@ -548,9 +552,9 @@ export default function ScheduleOptimizer({
                   <span className="font-medium">Best objective:</span> {bestScore.toFixed(2)}
                   {bestScore === 0 ? ' 🎉 (Perfect schedule!)' : ''}
                 </p>
-                {(bestPainScore !== null || bestSpreadPenaltyScore !== null) && (
+                {(bestPainScore !== null || bestConcentrationPenaltyScore !== null) && (
                   <p className="text-xs text-gray-700">
-                    Pain: {bestPainScore ?? '-'} | Spread penalty: {bestSpreadPenaltyScore?.toFixed(2) ?? '-'}
+                    Pain: {bestPainScore ?? '-'} | Concentration penalty: {bestConcentrationPenaltyScore?.toFixed(2) ?? '-'}
                   </p>
                 )}
 
@@ -605,7 +609,7 @@ export default function ScheduleOptimizer({
         </label>
         {showLiveVisualization && (
           <p className="text-xs text-gray-500 mt-1 ml-6">
-            Watch objective score, pain points, and spread metrics update live as optimization runs.
+            Watch objective score, pain points, and concentration metrics update live as optimization runs.
           </p>
         )}
       </div>
@@ -626,7 +630,7 @@ export default function ScheduleOptimizer({
                     ? 'bg-green-100 text-green-800' 
                     : 'bg-amber-100 text-amber-800'
                 }`}>
-                  Objective: {renderedSchedule.objectiveScore.toFixed(2)} | Pain: {renderedSchedule.score} | Spread penalty: {renderedSchedule.spreadPenaltyScore.toFixed(2)} | Violations: {renderedSchedule.violations?.length || 0}
+                  Objective: {renderedSchedule.objectiveScore.toFixed(2)} | Pain: {renderedSchedule.score} | Concentration penalty: {renderedSchedule.concentrationPenaltyScore.toFixed(2)} | Violations: {renderedSchedule.violations?.length || 0}
                 </div>
               )}
             </div>
