@@ -173,6 +173,27 @@ describe('ScheduleVisualization', () => {
     expect(screen.getByText(/6 hrs at venue \(2 hrs over max\)/i)).toBeTruthy();
   });
 
+  it('shows gap size details for manage rest time and gaps in specific view', () => {
+    const match = createMockMatch('Team Gap A', 'Team Gap B', 7, 'Field 7', 'mixed', 'Team Gap C');
+    const schedule = new Schedule([match]);
+    schedule.score = 4;
+    schedule.violations = [
+      {
+        rule: 'Manage rest time and gaps',
+        description: 'Player Taylor has insufficient rest (1 slots) between games in slots 2 and 3',
+        level: 'warning',
+        matches: [match],
+      },
+    ];
+
+    render(<ScheduleVisualization schedule={schedule} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Violations Only' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show specific teams/players' }));
+
+    expect(screen.getAllByText(/Manage rest time and gaps:/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/insufficient rest \(1 slots\)/i)).toBeTruthy();
+  });
+
   it('keeps view mode and toggles in sync when settings are shared', () => {
     const match = createMockMatch('Team Sync A', 'Team Sync B', 6, 'Field 6', 'mixed', 'Team Sync C');
     const schedule = new Schedule([match]);

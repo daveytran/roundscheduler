@@ -76,7 +76,7 @@ interface EntityViolationSummary {
   total: number
   levelCounts: Record<RuleViolation['level'], number>
   highestLevel: RuleViolation['level']
-  topRules: Array<{ rule: string; count: number; metricSummary?: string }>
+  topRules: Array<{ rule: string; count: number; metricSummary?: string; detailSummary?: string }>
 }
 
 interface RuleImpactSummary {
@@ -205,6 +205,22 @@ function formatRuleMetricSummary(metric: ParsedViolationMetric): string {
   return `${formatMetricNumber(metric.observed)} games (${formatMetricNumber(metric.overage)} over max)`
 }
 
+function summarizeEntityRuleDetail(
+  description: string,
+  entityGroup: 'team' | 'player',
+  entityName: string
+): string {
+  const entityLabel = entityGroup === 'team' ? 'Team' : 'Player'
+  const escapedEntityName = entityName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const prefixWithColon = new RegExp(`^${entityLabel}\\s+${escapedEntityName}\\s*:\\s*`, 'i')
+  const prefixWithoutColon = new RegExp(`^${entityLabel}\\s+${escapedEntityName}\\s+`, 'i')
+
+  const withoutPrefix = description.trim().replace(prefixWithColon, '').replace(prefixWithoutColon, '')
+  const normalized = withoutPrefix.length > 0 ? withoutPrefix[0].toUpperCase() + withoutPrefix.slice(1) : description
+
+  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized
+}
+
 function extractEntityName(description: string, entityGroup: 'team' | 'player'): string {
   const prefix = entityGroup === 'team' ? 'team ' : 'player '
   const normalizedDescription = description.trim()
@@ -249,6 +265,7 @@ function buildEntityAnalytics(entityGroup: ViolationEntityGroup, violations: Rul
       highestLevel: RuleViolation['level']
       ruleCounts: Map<string, number>
       ruleMetrics: Map<string, ParsedViolationMetric>
+      ruleDetails: Map<string, string>
     }
   >()
 
@@ -290,6 +307,7 @@ function buildEntityAnalytics(entityGroup: ViolationEntityGroup, violations: Rul
         highestLevel: violation.level,
         ruleCounts: new Map([[violation.rule, 1]]),
         ruleMetrics: metric ? new Map([[violation.rule, metric]]) : new Map(),
+        ruleDetails: new Map([[violation.rule, summarizeEntityRuleDetail(violation.description, entityGroup, entityName)]]),
       })
       return
     }
@@ -306,6 +324,12 @@ function buildEntityAnalytics(entityGroup: ViolationEntityGroup, violations: Rul
       ) {
         existingSummary.ruleMetrics.set(violation.rule, metric)
       }
+    }
+    if (!existingSummary.ruleDetails.has(violation.rule)) {
+      existingSummary.ruleDetails.set(
+        violation.rule,
+        summarizeEntityRuleDetail(violation.description, entityGroup, entityName)
+      )
     }
     if (LEVEL_ORDER[violation.level] > LEVEL_ORDER[existingSummary.highestLevel]) {
       existingSummary.highestLevel = violation.level
@@ -375,11 +399,12 @@ function buildEntityAnalytics(entityGroup: ViolationEntityGroup, violations: Rul
         .map(([rule, count]) => {
           const metric = summary.ruleMetrics.get(rule)
           return {
-            rule,
-            count,
-            metricSummary: metric ? formatRuleMetricSummary(metric) : undefined,
-          }
-        })
+          rule,
+          count,
+          metricSummary: metric ? formatRuleMetricSummary(metric) : undefined,
+          detailSummary: summary.ruleDetails.get(rule),
+        }
+      })
         .sort((left, right) => right.count - left.count || left.rule.localeCompare(right.rule))
         .slice(0, 2)
 
@@ -1245,7 +1270,11 @@ export default function ScheduleVisualization({
                                         <div key={`${entity.name}-${ruleSummary.rule}`}>
                                           <span className="font-medium">{ruleSummary.rule}:</span> {ruleSummary.count} violation
                                           {ruleSummary.count !== 1 ? 's' : ''}
-                                          {ruleSummary.metricSummary ? `, ${ruleSummary.metricSummary}` : ''}
+                                          {ruleSummary.metricSummary
+                                            ? `, ${ruleSummary.metricSummary}`
+                                            : ruleSummary.detailSummary
+                                              ? `, ${ruleSummary.detailSummary}`
+                                              : ''}
                                         </div>
                                       ))}
                                     </div>
