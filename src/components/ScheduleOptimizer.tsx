@@ -58,6 +58,9 @@ export default function ScheduleOptimizer({
   const [renderedSchedule, setRenderedSchedule] = useState<Schedule | null>(null);
   const [showLiveVisualization, setShowLiveVisualization] = useState(true);
   const [lastUpdateIteration, setLastUpdateIteration] = useState<number>(0);
+  const [liveBaselineViolationCount, setLiveBaselineViolationCount] = useState<number | null>(null);
+  const [liveBestViolationCount, setLiveBestViolationCount] = useState<number | null>(null);
+  const [liveLatestViolationChange, setLiveLatestViolationChange] = useState<number>(0);
   
   // Track original imported matches and continuation state
   const [originalMatches, setOriginalMatches] = useState<Match[]>(matches || []);
@@ -68,6 +71,7 @@ export default function ScheduleOptimizer({
   // Throttling refs to avoid stale closure state inside optimization callback
   const lastUIUpdateRef = useRef<number>(0);
   const bestScoreRef = useRef<number | null>(null);
+  const previousViolationCountRef = useRef<number | null>(null);
 
   // Reset continuation when imported match content changes (not just length)
   useEffect(() => {
@@ -85,6 +89,10 @@ export default function ScheduleOptimizer({
       setError(null);
       bestScoreRef.current = null;
       lastUIUpdateRef.current = 0;
+      previousViolationCountRef.current = null;
+      setLiveBaselineViolationCount(null);
+      setLiveBestViolationCount(null);
+      setLiveLatestViolationChange(0);
     }
 
     setOriginalMatches(nextMatches);
@@ -121,7 +129,9 @@ export default function ScheduleOptimizer({
       setLastUpdateIteration(0);
       lastUIUpdateRef.current = 0;
       bestScoreRef.current = null;
+      previousViolationCountRef.current = null;
       setUserChangedSettings(false); // Reset user changes flag so future prop updates work
+      setLiveLatestViolationChange(0);
 
       if (!originalMatches || originalMatches.length === 0) {
         throw new Error('No matches to optimize');
@@ -160,6 +170,7 @@ export default function ScheduleOptimizer({
       // Initial evaluation to get the starting score
       startingSchedule.evaluate(rules);
       const startingScore = startingSchedule.score;
+      const startingViolationCount = startingSchedule.violations?.length || 0;
       
       // Set original score only if this is the first optimization
       if (preservedOriginalScore === null) {
@@ -172,6 +183,10 @@ export default function ScheduleOptimizer({
       setCurrentScore(startingScore);
       setBestScore(startingScore);
       bestScoreRef.current = startingScore;
+      setLiveBaselineViolationCount(startingViolationCount);
+      setLiveBestViolationCount(startingViolationCount);
+      setLiveLatestViolationChange(0);
+      previousViolationCountRef.current = startingViolationCount;
       
       console.log(`Starting optimization: ${originalMatches.length} matches, ${rules.length} rules, starting score ${startingScore}`);
       
@@ -215,6 +230,14 @@ export default function ScheduleOptimizer({
 
           // Update visualization
           if (info.currentSchedule) {
+            const currentViolationCount = info.currentSchedule.violations?.length || 0;
+            if (previousViolationCountRef.current !== null && previousViolationCountRef.current !== currentViolationCount) {
+              setLiveLatestViolationChange(currentViolationCount - previousViolationCountRef.current);
+            }
+            previousViolationCountRef.current = currentViolationCount;
+            setLiveBestViolationCount(previousBest =>
+              previousBest === null ? currentViolationCount : Math.min(previousBest, currentViolationCount)
+            );
             setRenderedSchedule(info.currentSchedule);
             setLastUpdateIteration(info.iteration);
           }
@@ -264,6 +287,10 @@ export default function ScheduleOptimizer({
       setError(null);
       bestScoreRef.current = null;
       lastUIUpdateRef.current = 0;
+      previousViolationCountRef.current = null;
+      setLiveBaselineViolationCount(null);
+      setLiveBestViolationCount(null);
+      setLiveLatestViolationChange(0);
       console.log('🔄 Reset to original schedule');
       
       // Notify parent component with original schedule
@@ -515,7 +542,13 @@ export default function ScheduleOptimizer({
               )}
             </div>
           </div>
-          <ScheduleVisualization schedule={renderedSchedule} />
+          <ScheduleVisualization
+            schedule={renderedSchedule}
+            isLiveUpdating
+            liveViolationBaseline={liveBaselineViolationCount}
+            liveBestViolationCount={liveBestViolationCount}
+            liveLatestViolationChange={liveLatestViolationChange}
+          />
         </div>
       )}
 
