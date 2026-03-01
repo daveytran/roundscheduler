@@ -142,4 +142,31 @@ describe('ScheduleVisualization', () => {
     expect(screen.getByText(/Limit venue time:/i)).toBeTruthy();
     expect(screen.getByText(/3 teams at venue up to 7 hrs \(2 hrs over max\)/i)).toBeTruthy();
   });
+
+  it('shows by-how-much details for specific teams and players when toggled on', () => {
+    const match = createMockMatch('Team L', 'Team M', 5, 'Field 5', 'mixed', 'Team N');
+    const schedule = new Schedule([match]);
+    schedule.score = 8;
+    schedule.violations = [
+      {
+        rule: 'Limit venue time',
+        description: 'Team Alpha needs to be at venue for 7.0 hours (max: 5h)',
+        level: 'warning',
+        matches: [match],
+      },
+      {
+        rule: 'Limit venue time',
+        description: 'Player Jane needs to be at venue for 6.0 hours (max: 4h)',
+        level: 'warning',
+        matches: [match],
+      },
+    ];
+
+    render(<ScheduleVisualization schedule={schedule} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Violations Only' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show specific teams/players' }));
+
+    expect(screen.getByText(/7 hrs at venue \(2 hrs over max\)/i)).toBeTruthy();
+    expect(screen.getByText(/6 hrs at venue \(2 hrs over max\)/i)).toBeTruthy();
+  });
 });
