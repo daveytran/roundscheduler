@@ -11,10 +11,6 @@ interface GroupedMatches {
   [key: string]: Match[]
 }
 
-interface GroupedMatchesByTime {
-  [timeSlot: number]: Match[]
-}
-
 interface ViolationInfo {
   type: 'note' | 'warning' | 'alert' | 'critical'
   message: string
@@ -22,11 +18,13 @@ interface ViolationInfo {
 
 export default function ScheduleVisualization({ schedule }: ScheduleVisualizationProps) {
   const violations: RuleViolation[] = schedule?.violations || []
-  const [viewMode, setViewMode] = useState<'by_time' | 'by_field'>('by_time')
+  const [viewMode, setViewMode] = useState<'by_time' | 'by_field' | 'violations_only'>('by_time')
   const [selectedDivision, setSelectedDivision] = useState<string>('all')
   const [showSpecialActivities, setShowSpecialActivities] = useState<boolean>(true)
   const [showNotes, setShowNotes] = useState<boolean>(false)
   const [isViolationsExpanded, setIsViolationsExpanded] = useState<boolean>(false)
+  const isViolationsOnlyMode = viewMode === 'violations_only'
+  const visibleViolations = showNotes ? violations : violations.filter((violation: RuleViolation) => violation.level !== 'note')
 
   // Get violations for a specific match using the rule system
   const getMatchViolations = (match: Match): ViolationInfo[] => {
@@ -140,26 +138,13 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
       }
       groupedMatches[match.timeSlot].push(match)
     })
-  } else {
+  } else if (viewMode === 'by_field') {
     filteredMatches.forEach((match: Match) => {
       if (!groupedMatches[match.field]) {
         groupedMatches[match.field] = []
       }
       groupedMatches[match.field].push(match)
     })
-  }
-
-  // Helper to check if a match has violations (legacy system)
-  const matchHasViolations = (match: Match): boolean => {
-    return violations.some(
-      (v: RuleViolation) =>
-        v.matches &&
-        v.matches.some(
-          (m: Match) =>
-            (m.team1.name === match.team1.name && m.team2.name === match.team2.name) ||
-            (m.team1.name === match.team2.name && m.team2.name === match.team1.name)
-        )
-    )
   }
 
   // Helper to get violation descriptions for a match (legacy system)
@@ -210,38 +195,6 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
         <h2 className="text-xl font-bold">Schedule Visualization</h2>
 
         <div className="flex items-center gap-4 flex-wrap">
-          <select
-            value={selectedDivision}
-            onChange={e => setSelectedDivision(e.target.value)}
-            className="p-2 border rounded"
-          >
-            {divisions.map((div: string) => (
-              <option key={div} value={div}>
-                {div === 'all' ? 'All Divisions' : div.charAt(0).toUpperCase() + div.slice(1)}
-              </option>
-            ))}
-          </select>
-
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={showSpecialActivities}
-              onChange={e => setShowSpecialActivities(e.target.checked)}
-              className="rounded"
-            />
-            Show Setup/Pack Down
-          </label>
-
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={showNotes}
-              onChange={e => setShowNotes(e.target.checked)}
-              className="rounded"
-            />
-            Show Notes
-          </label>
-
           <div className="flex border rounded overflow-hidden">
             <button
               onClick={() => setViewMode('by_time')}
@@ -255,7 +208,49 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
             >
               By Field
             </button>
+            <button
+              onClick={() => setViewMode('violations_only')}
+              className={`px-3 py-1 ${viewMode === 'violations_only' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+            >
+              Violations Only
+            </button>
           </div>
+
+          {!isViolationsOnlyMode && (
+            <>
+              <select
+                value={selectedDivision}
+                onChange={e => setSelectedDivision(e.target.value)}
+                className="p-2 border rounded"
+              >
+                {divisions.map((div: string) => (
+                  <option key={div} value={div}>
+                    {div === 'all' ? 'All Divisions' : div.charAt(0).toUpperCase() + div.slice(1)}
+                  </option>
+                ))}
+              </select>
+
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={showSpecialActivities}
+                  onChange={e => setShowSpecialActivities(e.target.checked)}
+                  className="rounded"
+                />
+                Show Setup/Pack Down
+              </label>
+            </>
+          )}
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={showNotes}
+              onChange={e => setShowNotes(e.target.checked)}
+              className="rounded"
+            />
+            Show Notes
+          </label>
 
           <button onClick={handleExportCSV} className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600">
             Export CSV
@@ -264,44 +259,46 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
       </div>
 
       {/* Color Legend */}
-      <div className="mb-4 flex flex-wrap gap-4 text-sm">
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 bg-blue-100 border border-blue-300 rounded"></div>
-          <span>🔧 Setup Activities</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 bg-purple-100 border border-purple-300 rounded"></div>
-          <span>📦 Pack Down Activities</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 bg-red-100 border border-red-300 rounded"></div>
-          <span>🔴 Critical (disqualifies schedule)</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 bg-red-100 border border-red-300 rounded"></div>
-          <span>🚨 Alert (serious but won&apos;t disqualify)</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 bg-yellow-100 border border-yellow-300 rounded"></div>
-          <span>⚠️ Warning (standard violations)</span>
-        </div>
-        {showNotes && (
+      {!isViolationsOnlyMode && (
+        <div className="mb-4 flex flex-wrap gap-4 text-sm">
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 bg-blue-100 border border-blue-300 rounded"></div>
-            <span>ℹ️ Note (minor suggestions)</span>
+            <span>🔧 Setup Activities</span>
           </div>
-        )}
-      </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-purple-100 border border-purple-300 rounded"></div>
+            <span>📦 Pack Down Activities</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-red-100 border border-red-300 rounded"></div>
+            <span>🔴 Critical (disqualifies schedule)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-red-100 border border-red-300 rounded"></div>
+            <span>🚨 Alert (serious but won&apos;t disqualify)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-yellow-100 border border-yellow-300 rounded"></div>
+            <span>⚠️ Warning (standard violations)</span>
+          </div>
+          {showNotes && (
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-blue-100 border border-blue-300 rounded"></div>
+              <span>ℹ️ Note (minor suggestions)</span>
+            </div>
+          )}
+        </div>
+      )}
 
-      {schedule.score > 0 && (
+      {schedule.score > 0 && !isViolationsOnlyMode && (
         <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded">
           <button
             onClick={() => setIsViolationsExpanded(!isViolationsExpanded)}
             className="flex items-center justify-between w-full text-left hover:bg-amber-100 rounded p-1 -m-1"
           >
             <h3 className="font-bold text-amber-800">
-              Schedule Violations (Score: {schedule.score}) - {violations.length} violation
-              {violations.length !== 1 ? 's' : ''}
+              Schedule Violations (Score: {schedule.score}) - {visibleViolations.length} violation
+              {visibleViolations.length !== 1 ? 's' : ''}
             </h3>
             <svg
               className={`w-5 h-5 text-amber-800 transform transition-transform ${isViolationsExpanded ? 'rotate-180' : ''}`}
@@ -314,7 +311,7 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
           </button>
           {isViolationsExpanded && (
             <ul className="list-disc pl-5 text-sm mt-2">
-              {violations.map((v: RuleViolation, i: number) => (
+              {visibleViolations.map((v: RuleViolation, i: number) => (
                 <li key={i} className="text-amber-700">
                   {v.rule}: {v.description}
                 </li>
@@ -324,202 +321,252 @@ export default function ScheduleVisualization({ schedule }: ScheduleVisualizatio
         </div>
       )}
 
-      {/* Schedule content with max height and scrolling */}
-      <div className="max-h-[600px] overflow-y-auto border border-gray-200 rounded">
-        {viewMode === 'by_time' ? (
-          <div className="space-y-4 p-3">
-            {timeSlots.map((slot: number) => (
-              <div key={slot} className="border rounded overflow-hidden">
-                <div className="bg-gray-100 p-2 font-bold sticky top-0 z-10">Time Slot {slot}</div>
-                <div className="p-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {(groupedMatches[slot] || []).map((match: Match, idx: number) => {
-                    const scheduleViolations = getMatchViolations(match)
-                    return (
-                      <div
-                        key={idx}
-                        className={`p-3 border rounded ${getCardColor(scheduleViolations, match)} ${scheduleViolations.length > 0 ? 'border-red-300 bg-red-50' : ''}`}
-                      >
-                        <div className="font-bold mb-1">{match.field}</div>
+      {isViolationsOnlyMode ? (
+        <div className="border border-gray-200 rounded p-4">
+          <h3 className="font-bold text-gray-800 mb-3">
+            Violation List ({visibleViolations.length})
+          </h3>
+          {visibleViolations.length === 0 ? (
+            <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded p-3">
+              No violations found for this schedule.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {visibleViolations.map((violation: RuleViolation, index: number) => (
+                <li
+                  key={`${violation.rule}-${index}`}
+                  className={`border rounded p-3 ${
+                    violation.level === 'critical'
+                      ? 'bg-red-50 border-red-200'
+                      : violation.level === 'alert'
+                        ? 'bg-red-50 border-red-200'
+                        : violation.level === 'warning'
+                          ? 'bg-yellow-50 border-yellow-200'
+                          : 'bg-blue-50 border-blue-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span
+                      className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                        violation.level === 'critical'
+                          ? 'bg-red-200 text-red-900'
+                          : violation.level === 'alert'
+                            ? 'bg-red-200 text-red-900'
+                            : violation.level === 'warning'
+                              ? 'bg-yellow-200 text-yellow-900'
+                              : 'bg-blue-200 text-blue-900'
+                      }`}
+                    >
+                      {violation.level.toUpperCase()}
+                    </span>
+                    <span className="text-sm font-semibold text-gray-800">{violation.rule}</span>
+                  </div>
+                  <p className="text-sm text-gray-700">{violation.description}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <>
+          {/* Schedule content with max height and scrolling */}
+          <div className="max-h-[600px] overflow-y-auto border border-gray-200 rounded">
+            {viewMode === 'by_time' ? (
+              <div className="space-y-4 p-3">
+                {timeSlots.map((slot: number) => (
+                  <div key={slot} className="border rounded overflow-hidden">
+                    <div className="bg-gray-100 p-2 font-bold sticky top-0 z-10">Time Slot {slot}</div>
+                    <div className="p-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {(groupedMatches[slot] || []).map((match: Match, idx: number) => {
+                        const scheduleViolations = getMatchViolations(match)
+                        return (
+                          <div
+                            key={idx}
+                            className={`p-3 border rounded ${getCardColor(scheduleViolations, match)} ${scheduleViolations.length > 0 ? 'border-red-300 bg-red-50' : ''}`}
+                          >
+                            <div className="font-bold mb-1">{match.field}</div>
 
-                        {/* Special rendering for setup/pack down activities */}
-                        {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? (
-                          <div>
-                            <div className="text-center mb-2">
-                              <span
-                                className={`inline-block px-3 py-1 rounded-full text-sm font-bold ${
-                                  match.activityType === 'SETUP'
-                                    ? 'bg-blue-200 text-blue-800'
-                                    : 'bg-purple-200 text-purple-800'
-                                }`}
-                              >
-                                {match.activityType === 'SETUP' ? '🔧 SETUP' : '📦 PACKING DOWN'}
-                              </span>
-                            </div>
-                            <div className="text-sm text-gray-600 text-center">
-                              {match.team1.name !== 'ACTIVITY_PLACEHOLDER' && match.team2.name !== 'ACTIVITY_PLACEHOLDER'
-                                ? `Teams: ${match.team1.name}, ${match.team2.name}`
-                                : 'All teams participate'}
-                            </div>
-                          </div>
-                        ) : (
-                          /* Regular match rendering */
-                          <div>
-                            <div className="flex justify-between items-center mb-1">
-                              <span className={`${scheduleViolations.length > 0 ? 'text-red-600 font-semibold' : ''}`}>
-                                {match.team1.name}
-                              </span>
-                              <span>vs</span>
-                              <span className={`${scheduleViolations.length > 0 ? 'text-red-600 font-semibold' : ''}`}>
-                                {match.team2.name}
-                              </span>
-                            </div>
-                            <div className="text-sm text-gray-600">
-                              {match.division}, {match.refereeTeam ? `Ref: ${match.refereeTeam.name}` : 'No referee'}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Show schedule violations */}
-                        {scheduleViolations.length > 0 && (
-                          <div className="mt-2 space-y-1">
-                            {scheduleViolations.map((violation: ViolationInfo, vIndex: number) => (
-                              <div
-                                key={vIndex}
-                                className={`text-xs px-2 py-1 rounded ${
-                                  violation.type === 'critical'
-                                    ? 'bg-red-200 text-red-800'
-                                    : violation.type === 'alert'
-                                      ? 'bg-red-200 text-red-800'
-                                      : violation.type === 'warning'
-                                        ? 'bg-yellow-200 text-yellow-800'
-                                        : 'bg-blue-200 text-blue-800'
-                                }`}
-                              >
-                                {violation.message}
+                            {/* Special rendering for setup/pack down activities */}
+                            {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? (
+                              <div>
+                                <div className="text-center mb-2">
+                                  <span
+                                    className={`inline-block px-3 py-1 rounded-full text-sm font-bold ${
+                                      match.activityType === 'SETUP'
+                                        ? 'bg-blue-200 text-blue-800'
+                                        : 'bg-purple-200 text-purple-800'
+                                    }`}
+                                  >
+                                    {match.activityType === 'SETUP' ? '🔧 SETUP' : '📦 PACKING DOWN'}
+                                  </span>
+                                </div>
+                                <div className="text-sm text-gray-600 text-center">
+                                  {match.team1.name !== 'ACTIVITY_PLACEHOLDER' && match.team2.name !== 'ACTIVITY_PLACEHOLDER'
+                                    ? `Teams: ${match.team1.name}, ${match.team2.name}`
+                                    : 'All teams participate'}
+                                </div>
                               </div>
-                            ))}
+                            ) : (
+                              /* Regular match rendering */
+                              <div>
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className={`${scheduleViolations.length > 0 ? 'text-red-600 font-semibold' : ''}`}>
+                                    {match.team1.name}
+                                  </span>
+                                  <span>vs</span>
+                                  <span className={`${scheduleViolations.length > 0 ? 'text-red-600 font-semibold' : ''}`}>
+                                    {match.team2.name}
+                                  </span>
+                                </div>
+                                <div className="text-sm text-gray-600">
+                                  {match.division}, {match.refereeTeam ? `Ref: ${match.refereeTeam.name}` : 'No referee'}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Show schedule violations */}
+                            {scheduleViolations.length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                {scheduleViolations.map((violation: ViolationInfo, vIndex: number) => (
+                                  <div
+                                    key={vIndex}
+                                    className={`text-xs px-2 py-1 rounded ${
+                                      violation.type === 'critical'
+                                        ? 'bg-red-200 text-red-800'
+                                        : violation.type === 'alert'
+                                          ? 'bg-red-200 text-red-800'
+                                          : violation.type === 'warning'
+                                            ? 'bg-yellow-200 text-yellow-800'
+                                            : 'bg-blue-200 text-blue-800'
+                                    }`}
+                                  >
+                                    {violation.message}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className="space-y-4 p-3">
-            {fields.map((field: string) => (
-              <div key={field} className="border rounded overflow-hidden">
-                <div className="bg-gray-100 p-2 font-bold sticky top-0 z-10">{field}</div>
-                <div className="p-3">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm border-collapse">
-                      <thead className="sticky top-8 z-10 bg-white">
-                        <tr className="bg-gray-50">
-                          <th className="p-2 text-left border">Time Slot</th>
-                          <th className="p-2 text-left border">Division</th>
-                          <th className="p-2 text-left border">Team 1</th>
-                          <th className="p-2 text-left border">Team 2</th>
-                          <th className="p-2 text-left border">Referee</th>
-                          <th className="p-2 text-left border">Violations</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(groupedMatches[field] || [])
-                          .sort((a: Match, b: Match) => a.timeSlot - b.timeSlot)
-                          .map((match: Match, idx: number) => {
-                            const scheduleViolations = getMatchViolations(match)
-                            const hasLegacyViolation = false
-                            const rowColor = getRowColor(scheduleViolations)
-                            return (
-                              <tr
-                                key={idx}
-                                className={`border-b ${rowColor} ${hasLegacyViolation && scheduleViolations.length === 0 ? 'bg-red-50' : ''}`}
-                              >
-                                <td className="p-2 border">{match.timeSlot}</td>
-                                <td className="p-2 border">
-                                  {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? (
-                                    <span
-                                      className={`inline-block px-2 py-1 rounded text-xs font-bold ${
-                                        match.activityType === 'SETUP'
-                                          ? 'bg-blue-200 text-blue-800'
-                                          : 'bg-purple-200 text-purple-800'
-                                      }`}
-                                    >
-                                      {match.activityType === 'SETUP' ? 'SETUP' : 'PACK DOWN'}
-                                    </span>
-                                  ) : (
-                                    match.division
-                                  )}
-                                </td>
-                                <td
-                                  className={`p-2 border ${scheduleViolations.length > 0 || hasLegacyViolation ? 'text-red-600 font-semibold' : ''}`}
-                                >
-                                  {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN'
-                                    ? match.team1.name !== 'ACTIVITY_PLACEHOLDER'
-                                      ? match.team1.name
-                                      : '-'
-                                    : match.team1.name}
-                                </td>
-                                <td
-                                  className={`p-2 border ${scheduleViolations.length > 0 || hasLegacyViolation ? 'text-red-600 font-semibold' : ''}`}
-                                >
-                                  {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN'
-                                    ? match.team2.name !== 'ACTIVITY_PLACEHOLDER'
-                                      ? match.team2.name
-                                      : '-'
-                                    : match.team2.name}
-                                </td>
-                                <td className="p-2 border">
-                                  {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN'
-                                    ? '-'
-                                    : match.refereeTeam?.name || '-'}
-                                </td>
-                                <td className="p-2 border">
-                                  {scheduleViolations.length > 0 ? (
-                                    <div className="space-y-1">
-                                      {scheduleViolations.map((violation: ViolationInfo, vIndex: number) => (
-                                        <div
-                                          key={vIndex}
-                                          className={`text-xs px-2 py-1 rounded ${
-                                            violation.type === 'critical'
-                                              ? 'bg-red-200 text-red-800'
-                                              : violation.type === 'alert'
-                                                ? 'bg-red-200 text-red-800'
-                                                : violation.type === 'warning'
-                                                  ? 'bg-yellow-200 text-yellow-800'
-                                                  : 'bg-blue-200 text-blue-800'
+            ) : (
+              <div className="space-y-4 p-3">
+                {fields.map((field: string) => (
+                  <div key={field} className="border rounded overflow-hidden">
+                    <div className="bg-gray-100 p-2 font-bold sticky top-0 z-10">{field}</div>
+                    <div className="p-3">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm border-collapse">
+                          <thead className="sticky top-8 z-10 bg-white">
+                            <tr className="bg-gray-50">
+                              <th className="p-2 text-left border">Time Slot</th>
+                              <th className="p-2 text-left border">Division</th>
+                              <th className="p-2 text-left border">Team 1</th>
+                              <th className="p-2 text-left border">Team 2</th>
+                              <th className="p-2 text-left border">Referee</th>
+                              <th className="p-2 text-left border">Violations</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(groupedMatches[field] || [])
+                              .sort((a: Match, b: Match) => a.timeSlot - b.timeSlot)
+                              .map((match: Match, idx: number) => {
+                                const scheduleViolations = getMatchViolations(match)
+                                const hasLegacyViolation = false
+                                const rowColor = getRowColor(scheduleViolations)
+                                return (
+                                  <tr
+                                    key={idx}
+                                    className={`border-b ${rowColor} ${hasLegacyViolation && scheduleViolations.length === 0 ? 'bg-red-50' : ''}`}
+                                  >
+                                    <td className="p-2 border">{match.timeSlot}</td>
+                                    <td className="p-2 border">
+                                      {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN' ? (
+                                        <span
+                                          className={`inline-block px-2 py-1 rounded text-xs font-bold ${
+                                            match.activityType === 'SETUP'
+                                              ? 'bg-blue-200 text-blue-800'
+                                              : 'bg-purple-200 text-purple-800'
                                           }`}
                                         >
-                                          {violation.message}
+                                          {match.activityType === 'SETUP' ? 'SETUP' : 'PACK DOWN'}
+                                        </span>
+                                      ) : (
+                                        match.division
+                                      )}
+                                    </td>
+                                    <td
+                                      className={`p-2 border ${scheduleViolations.length > 0 || hasLegacyViolation ? 'text-red-600 font-semibold' : ''}`}
+                                    >
+                                      {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN'
+                                        ? match.team1.name !== 'ACTIVITY_PLACEHOLDER'
+                                          ? match.team1.name
+                                          : '-'
+                                        : match.team1.name}
+                                    </td>
+                                    <td
+                                      className={`p-2 border ${scheduleViolations.length > 0 || hasLegacyViolation ? 'text-red-600 font-semibold' : ''}`}
+                                    >
+                                      {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN'
+                                        ? match.team2.name !== 'ACTIVITY_PLACEHOLDER'
+                                          ? match.team2.name
+                                          : '-'
+                                        : match.team2.name}
+                                    </td>
+                                    <td className="p-2 border">
+                                      {match.activityType === 'SETUP' || match.activityType === 'PACKING_DOWN'
+                                        ? '-'
+                                        : match.refereeTeam?.name || '-'}
+                                    </td>
+                                    <td className="p-2 border">
+                                      {scheduleViolations.length > 0 ? (
+                                        <div className="space-y-1">
+                                          {scheduleViolations.map((violation: ViolationInfo, vIndex: number) => (
+                                            <div
+                                              key={vIndex}
+                                              className={`text-xs px-2 py-1 rounded ${
+                                                violation.type === 'critical'
+                                                  ? 'bg-red-200 text-red-800'
+                                                  : violation.type === 'alert'
+                                                    ? 'bg-red-200 text-red-800'
+                                                    : violation.type === 'warning'
+                                                      ? 'bg-yellow-200 text-yellow-800'
+                                                      : 'bg-blue-200 text-blue-800'
+                                              }`}
+                                            >
+                                              {violation.message}
+                                            </div>
+                                          ))}
                                         </div>
-                                      ))}
-                                    </div>
-                                  ) : hasLegacyViolation ? (
-                                    <div className="space-y-1">
-                                      {getViolationDescriptions(match).map((desc: string, i: number) => (
-                                        <div key={i} className="text-xs px-2 py-1 rounded bg-red-200 text-red-800">
-                                          {desc}
+                                      ) : hasLegacyViolation ? (
+                                        <div className="space-y-1">
+                                          {getViolationDescriptions(match).map((desc: string, i: number) => (
+                                            <div key={i} className="text-xs px-2 py-1 rounded bg-red-200 text-red-800">
+                                              {desc}
+                                            </div>
+                                          ))}
                                         </div>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    <span className="text-gray-500">-</span>
-                                  )}
-                                </td>
-                              </tr>
-                            )
-                          })}
-                      </tbody>
-                    </table>
+                                      ) : (
+                                        <span className="text-gray-500">-</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   )
 }
