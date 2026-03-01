@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
+import { DEFAULT_CUSTOM_RULE_TEMPLATE } from '../lib/custom-rule-templates';
 
 interface CodeEditorProps {
   value: string | undefined;
@@ -219,68 +220,7 @@ declare const violations: RuleViolation[];
 declare function evaluate(schedule: Schedule): RuleViolation[];
 `;
 
-const defaultCode = `// 🎯 Try these features:
-// • Type "schedule." and press Ctrl+Space for autocomplete
-// • Type "violationTemplate" and press Tab for a snippet
-// • Type "ScheduleHelpers." to see helper functions
-// • Hover over properties for documentation
-
-// The 'schedule' object is automatically available!
-// It contains: schedule.matches, schedule.violations, schedule.score, etc.
-
-const violations = [];
-
-// Example 1: Check for back-to-back games using helper functions
-const teamMatches = ScheduleHelpers.groupMatchesByTeam(schedule.matches);
-
-Object.entries(teamMatches).forEach(([teamName, matches]) => {
-  const sorted = [...matches].sort((a, b) => a.timeSlot - b.timeSlot);
-
-  for (let i = 0; i < sorted.length - 1; i++) {
-    if (ScheduleHelpers.areConsecutive(sorted[i], sorted[i + 1])) {
-      violations.push({
-        rule: "Back-to-back games",
-        description: \`Team \${teamName} plays consecutive games at slots \${sorted[i].timeSlot} and \${sorted[i + 1].timeSlot}\`,
-        matches: [sorted[i], sorted[i + 1]],
-        level: "warning"
-      });
-    }
-  }
-});
-
-// Example 2: Field usage balance using helper function
-const fieldMatches = ScheduleHelpers.groupMatchesByField(schedule.matches);
-const avgGamesPerField = schedule.matches.length / Object.keys(fieldMatches).length;
-
-Object.entries(fieldMatches).forEach(([field, matches]) => {
-  if (matches.length > avgGamesPerField * 1.5) {
-    violations.push({
-      rule: "Field overuse",
-      description: \`Field \${field} has \${matches.length} games (avg: \${avgGamesPerField.toFixed(1)})\`,
-      matches: matches,
-      level: "note"
-    });
-  }
-});
-
-// Example 3: Use schedule stats for analysis
-const stats = ScheduleHelpers.getScheduleStats(schedule);
-console.log("Schedule statistics:", stats);
-
-// Check if any division has significantly more games
-const divisionCount = Object.keys(stats.matchesPerDivision).length || 1;
-Object.entries(stats.matchesPerDivision).forEach(([division, count]) => {
-  const avgPerDivision = stats.totalMatches / divisionCount;
-  if (count > avgPerDivision * 1.3) {
-    violations.push({
-      rule: "Division imbalance",
-      description: \`Division \${division} has \${count} games, significantly more than average (\${avgPerDivision.toFixed(1)})\`,
-      level: "note"
-    });
-  }
-});
-
-return violations;`;
+const defaultCode = DEFAULT_CUSTOM_RULE_TEMPLATE;
 
 export default function CodeEditor({
   value,

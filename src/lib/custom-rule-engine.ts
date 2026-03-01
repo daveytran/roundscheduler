@@ -8,6 +8,7 @@ import {
   RuleConfigurationData,
 } from './localStorage';
 import { ScheduleHelpers } from './schedule-helpers';
+import { DEFAULT_CUSTOM_RULE_TEMPLATE } from './custom-rule-templates';
 
 type CustomRuleEvaluator = (schedule: Schedule, scheduleHelpers: typeof ScheduleHelpers) => unknown;
 
@@ -18,11 +19,7 @@ const LEGACY_SEVERITY_TO_LEVEL: Record<string, RuleViolation['level']> = {
   high: 'alert',
 };
 
-export const DEFAULT_CUSTOM_RULE_TEMPLATE = `function evaluate(schedule) {
-  const violations = [];
-  // Your custom rule logic here
-  return violations;
-}`;
+export { DEFAULT_CUSTOM_RULE_TEMPLATE } from './custom-rule-templates';
 
 function isCustomRuleEngine(value: unknown): value is CustomRuleEngine {
   return value === 'javascript';
