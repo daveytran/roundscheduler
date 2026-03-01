@@ -121,6 +121,7 @@ export class Schedule {
           painUnit: painScore.painUnit,
           affectedParticipants: painScore.affectedParticipants,
           painPerParticipant: painScore.painPerParticipant,
+          concentrationScope: violation.concentrationScope || rule.concentrationScope,
         }
       })
 

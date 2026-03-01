@@ -111,6 +111,9 @@ violations.push({
     const custom = merged.find(config => config.id === 'custom_keep_me');
     const duplicated = merged.find(config => config.id === 'duplicate_back_to_back_1');
     const builtin = merged.find(config => config.id === 'back_to_back');
+    const firstLast = merged.find(config => config.id === 'first_last');
+    const mixedDivisions = merged.find(config => config.id === 'mixed_divisions_timeslot');
+    const clubRefConflict = merged.find(config => config.id === 'club_referee_conflict');
 
     expect(custom).toBeDefined();
     expect(custom?.type).toBe('custom');
@@ -124,6 +127,73 @@ violations.push({
 
     expect(builtin?.category).toBe('both');
     expect(builtin?.painUnit).toBe('per_team');
+    expect(firstLast?.painUnit).toBe('per_player');
+    expect(mixedDivisions?.concentrationScope).toBe('league');
+    expect(clubRefConflict?.concentrationScope).toBe('league');
     expect(merged.some(config => config.id === 'prevent_team_double_booking')).toBe(true);
+  });
+
+  it('migrates existing first/last rule configs to per-player pain unit', () => {
+    const existingConfigs: RuleConfigurationData[] = [
+      {
+        id: 'first_last',
+        name: 'Avoid having first and last game',
+        enabled: true,
+        priority: 4,
+        type: 'builtin',
+        category: 'both',
+        painUnit: 'per_team',
+        priorityInputDescription: 'Pain points per team (shared across players)',
+      },
+      {
+        id: 'duplicate_first_last_1',
+        name: 'Avoid having first and last game (Copy)',
+        enabled: true,
+        priority: 6,
+        type: 'duplicated',
+        category: 'both',
+        baseRuleId: 'first_last',
+        painUnit: 'per_team',
+        priorityInputDescription: 'Pain points per team (shared across players)',
+      },
+    ];
+
+    const merged = mergeRuleConfigurations(existingConfigs);
+    const builtinFirstLast = merged.find(config => config.id === 'first_last');
+    const duplicateFirstLast = merged.find(config => config.id === 'duplicate_first_last_1');
+
+    expect(builtinFirstLast?.painUnit).toBe('per_player');
+    expect(duplicateFirstLast?.painUnit).toBe('per_player');
+  });
+
+  it('migrates league-level rules to league concentration scope', () => {
+    const existingConfigs: RuleConfigurationData[] = [
+      {
+        id: 'mixed_divisions_timeslot',
+        name: 'Detect mixed divisions in time slot',
+        enabled: true,
+        priority: 2,
+        type: 'builtin',
+        category: 'both',
+        concentrationScope: 'entity',
+      },
+      {
+        id: 'duplicate_mixed_divisions_1',
+        name: 'Detect mixed divisions in time slot (Copy)',
+        enabled: true,
+        priority: 4,
+        type: 'duplicated',
+        category: 'both',
+        baseRuleId: 'mixed_divisions_timeslot',
+        concentrationScope: 'entity',
+      },
+    ];
+
+    const merged = mergeRuleConfigurations(existingConfigs);
+    const builtinMixedDivisions = merged.find(config => config.id === 'mixed_divisions_timeslot');
+    const duplicateMixedDivisions = merged.find(config => config.id === 'duplicate_mixed_divisions_1');
+
+    expect(builtinMixedDivisions?.concentrationScope).toBe('league');
+    expect(duplicateMixedDivisions?.concentrationScope).toBe('league');
   });
 });

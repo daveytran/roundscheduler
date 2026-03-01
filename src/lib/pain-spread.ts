@@ -28,6 +28,8 @@ export interface PainSpreadGroupMetrics {
 
 export interface PainSpreadMetrics {
   totalPainScore: number
+  concentrationEligiblePainScore: number
+  leagueAttributedPainScore: number
   concentrationPenaltyWeight: number
   concentrationPenaltyScore: number
   // Backward-compatible aliases. Prefer concentrationPenalty* fields.
@@ -177,12 +179,21 @@ export function calculatePainSpreadMetrics(
 
   const teamPainByEntity = new Map<string, { pain: number; violations: number }>()
   const playerPainByEntity = new Map<string, { pain: number; violations: number }>()
+  let concentrationEligiblePainScore = 0
+  let leagueAttributedPainScore = 0
 
   violations.forEach((violation: RuleViolation) => {
     const painPoints = getViolationPainPoints(violation, fallbackPainPerViolation)
     if (painPoints <= 0) {
       return
     }
+
+    if (violation.concentrationScope === 'league') {
+      leagueAttributedPainScore += painPoints
+      return
+    }
+
+    concentrationEligiblePainScore += painPoints
 
     const teamName = extractEntityName(violation.description, 'team')
     if (teamName) {
@@ -211,14 +222,16 @@ export function calculatePainSpreadMetrics(
       : 0
 
   const concentrationPenaltyScore =
-    effectiveTotalPainScore > 0
-      ? effectiveTotalPainScore * combinedConcentration * concentrationPenaltyWeight
+    concentrationEligiblePainScore > 0
+      ? concentrationEligiblePainScore * combinedConcentration * concentrationPenaltyWeight
       : 0
   const objectiveScore = effectiveTotalPainScore + concentrationPenaltyScore
   const combinedSpread = groupsWithPain.length > 0 ? 1 - combinedConcentration : 0
 
   return {
     totalPainScore: round(effectiveTotalPainScore),
+    concentrationEligiblePainScore: round(concentrationEligiblePainScore),
+    leagueAttributedPainScore: round(leagueAttributedPainScore),
     concentrationPenaltyWeight: round(concentrationPenaltyWeight, 4),
     concentrationPenaltyScore: round(concentrationPenaltyScore),
     spreadPenaltyWeight: round(concentrationPenaltyWeight, 4),

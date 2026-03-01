@@ -16,6 +16,7 @@ export interface StoredData {
 
 export type RuleCategory = 'team' | 'player' | 'both';
 export type RulePainUnit = 'per_player' | 'per_team';
+export type RuleConcentrationScope = 'entity' | 'league';
 
 export type CustomRuleEngine = 'javascript';
 export type CustomRuleSourceType = 'evaluate-function' | 'body';
@@ -36,6 +37,7 @@ export interface RuleConfigurationData {
   category: RuleCategory;
   painUnit?: RulePainUnit;
   priorityInputDescription?: string;
+  concentrationScope?: RuleConcentrationScope;
   configuredParams?: { [key: string]: any };
   code?: string; // legacy custom rule source for backward compatibility
   customDefinition?: CustomRuleDefinitionData; // typed custom rule source

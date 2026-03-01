@@ -5,6 +5,7 @@ import { Schedule } from './Schedule'
 import { Division } from './Team'
 
 export type RulePainUnit = 'per_player' | 'per_team'
+export type RuleConcentrationScope = 'entity' | 'league'
 
 /**
  * Base class for schedule rules
@@ -12,10 +13,16 @@ export type RulePainUnit = 'per_player' | 'per_team'
 export abstract class ScheduleRule {
   priority: number
   painUnit: RulePainUnit
+  concentrationScope: RuleConcentrationScope
   abstract name: string
-  constructor(priority = 1, painUnit: RulePainUnit = 'per_player') {
+  constructor(
+    priority = 1,
+    painUnit: RulePainUnit = 'per_player',
+    concentrationScope: RuleConcentrationScope = 'entity'
+  ) {
     this.priority = priority // Higher priority means the rule is more important
     this.painUnit = painUnit
+    this.concentrationScope = concentrationScope
   }
 
   /**
@@ -725,9 +732,10 @@ export class CustomRule extends ScheduleRule {
     name: string,
     evaluateFunction: (schedule: Schedule) => RuleViolation[],
     priority = 1,
-    painUnit: RulePainUnit = 'per_player'
+    painUnit: RulePainUnit = 'per_player',
+    concentrationScope: RuleConcentrationScope = 'entity'
   ) {
-    super(priority, painUnit)
+    super(priority, painUnit, concentrationScope)
     this.name = name
     this.evaluateFunction = evaluateFunction
   }

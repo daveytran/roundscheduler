@@ -22,4 +22,6 @@ export interface RuleViolation {
   affectedParticipants?: number
   /** Pain points assigned to each affected participant */
   painPerParticipant?: number
+  /** Whether this violation should contribute to concentration scoring */
+  concentrationScope?: 'entity' | 'league'
 }

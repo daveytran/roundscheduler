@@ -11,6 +11,7 @@ import {
   ManagePlayerGameBalance,
   CustomRule as CustomRuleClass,
   PreventTeamDoubleBooking,
+  RuleConcentrationScope,
   RulePainUnit,
   ScheduleRule,
   DetectMixedDivisionsInTimeSlot,
@@ -43,6 +44,7 @@ export interface RuleDefinition {
   ruleClass: any;
   painUnit?: RulePainUnit;
   priorityInputDescription?: string;
+  concentrationScope?: RuleConcentrationScope;
   parameters?: { [key: string]: RuleParameter };
 }
 
@@ -64,6 +66,17 @@ function isRulePainUnit(value: unknown): value is RulePainUnit {
 
 function resolvePainUnit(value: unknown, fallback: RulePainUnit = 'per_player'): RulePainUnit {
   return isRulePainUnit(value) ? value : fallback;
+}
+
+function isRuleConcentrationScope(value: unknown): value is RuleConcentrationScope {
+  return value === 'entity' || value === 'league';
+}
+
+function resolveConcentrationScope(
+  value: unknown,
+  fallback: RuleConcentrationScope = 'entity'
+): RuleConcentrationScope {
+  return isRuleConcentrationScope(value) ? value : fallback;
 }
 
 // Central registry of all available rules
@@ -117,7 +130,7 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     category: 'both',
     priority: 4,
     enabled: true,
-    painUnit: 'per_team',
+    painUnit: 'per_player',
     ruleClass: AvoidFirstAndLastGame,
   },
   {
@@ -301,6 +314,7 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     priority: 2,
     enabled: true,
     painUnit: 'per_team',
+    concentrationScope: 'league',
     ruleClass: DetectMixedDivisionsInTimeSlot,
   },
   {
@@ -311,6 +325,7 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     priority: 3,
     enabled: true,
     painUnit: 'per_team',
+    concentrationScope: 'league',
     ruleClass: PreventClubRefereeConflict,
   },
 ];
@@ -333,6 +348,7 @@ export function getDefaultRuleConfigurations(): RuleConfigurationData[] {
       resolvePainUnit(rule.painUnit),
       rule.priorityInputDescription
     ),
+    concentrationScope: resolveConcentrationScope(rule.concentrationScope),
     configuredParams: rule.parameters
       ? Object.fromEntries(Object.entries(rule.parameters).map(([key, param]) => [key, param.default]))
       : undefined,
@@ -394,6 +410,10 @@ export function createRuleFromConfiguration(config: RuleConfigurationData): Sche
     try {
       const ruleInstance = new ruleDef.ruleClass(...args) as ScheduleRule;
       ruleInstance.painUnit = resolvePainUnit(config.painUnit, resolvePainUnit(ruleDef.painUnit));
+      ruleInstance.concentrationScope = resolveConcentrationScope(
+        config.concentrationScope,
+        resolveConcentrationScope(ruleDef.concentrationScope)
+      );
       return ruleInstance;
     } catch (err) {
       console.error(`Error creating rule ${config.name}: ${(err as Error).message}`);
@@ -408,7 +428,13 @@ export function createRuleFromConfiguration(config: RuleConfigurationData): Sche
 
     try {
       const evaluator = compileCustomRuleDefinition(customDefinition, config.name);
-      return new CustomRuleClass(config.name, evaluator, config.priority, resolvePainUnit(config.painUnit));
+      return new CustomRuleClass(
+        config.name,
+        evaluator,
+        config.priority,
+        resolvePainUnit(config.painUnit),
+        resolveConcentrationScope(config.concentrationScope)
+      );
     } catch (err) {
       console.error(`Error creating custom rule ${config.name}: ${(err as Error).message}`);
       return null;
@@ -449,12 +475,14 @@ function migrateRuleConfigurations(configs: RuleConfigurationData[]): RuleConfig
       }
 
       const painUnit = resolvePainUnit(config.painUnit);
+      const concentrationScope = resolveConcentrationScope(config.concentrationScope);
 
       migratedConfigs.push({
         ...config,
         code: customDefinition.source,
         customDefinition,
         painUnit,
+        concentrationScope,
         priorityInputDescription: resolvePriorityInputDescription(
           painUnit,
           config.priorityInputDescription
@@ -471,15 +499,24 @@ function migrateRuleConfigurations(configs: RuleConfigurationData[]): RuleConfig
       }
 
       const baseRule = getRuleDefinition(baseRuleId);
-      const painUnit = resolvePainUnit(config.painUnit, resolvePainUnit(baseRule?.painUnit));
+      const shouldUseBasePainUnit = baseRuleId === 'first_last';
+      const baseConcentrationScope = resolveConcentrationScope(baseRule?.concentrationScope);
+      const shouldUseBaseConcentrationScope = baseConcentrationScope === 'league';
+      const painUnit = shouldUseBasePainUnit
+        ? resolvePainUnit(baseRule?.painUnit)
+        : resolvePainUnit(config.painUnit, resolvePainUnit(baseRule?.painUnit));
+      const concentrationScope = shouldUseBaseConcentrationScope
+        ? baseConcentrationScope
+        : resolveConcentrationScope(config.concentrationScope, baseConcentrationScope);
       migratedConfigs.push({
         ...config,
         name: config.name || `${baseRule?.name ?? 'Rule'} (Copy)`,
         category: baseRule?.category || config.category,
         painUnit,
+        concentrationScope,
         priorityInputDescription: resolvePriorityInputDescription(
           painUnit,
-          config.priorityInputDescription || baseRule?.priorityInputDescription
+          shouldUseBasePainUnit ? baseRule?.priorityInputDescription : config.priorityInputDescription || baseRule?.priorityInputDescription
         ),
       });
       continue;
@@ -503,7 +540,15 @@ function migrateRuleConfigurations(configs: RuleConfigurationData[]): RuleConfig
       console.log(`🔄 Migrating rule: ${config.id} -> ${migratedId}`);
     }
 
-    const painUnit = resolvePainUnit(config.painUnit, resolvePainUnit(ruleDefinition.painUnit));
+    const shouldUseRulePainUnit = migratedId === 'first_last';
+    const ruleConcentrationScope = resolveConcentrationScope(ruleDefinition.concentrationScope);
+    const shouldUseRuleConcentrationScope = ruleConcentrationScope === 'league';
+    const painUnit = shouldUseRulePainUnit
+      ? resolvePainUnit(ruleDefinition.painUnit)
+      : resolvePainUnit(config.painUnit, resolvePainUnit(ruleDefinition.painUnit));
+    const concentrationScope = shouldUseRuleConcentrationScope
+      ? ruleConcentrationScope
+      : resolveConcentrationScope(config.concentrationScope, ruleConcentrationScope);
 
     migratedConfigs.push({
       ...config,
@@ -512,9 +557,10 @@ function migrateRuleConfigurations(configs: RuleConfigurationData[]): RuleConfig
       category: ruleDefinition.category,
       name: ruleDefinition.name,
       painUnit,
+      concentrationScope,
       priorityInputDescription: resolvePriorityInputDescription(
         painUnit,
-        config.priorityInputDescription || ruleDefinition.priorityInputDescription
+        shouldUseRulePainUnit ? ruleDefinition.priorityInputDescription : config.priorityInputDescription || ruleDefinition.priorityInputDescription
       ),
     });
   }
