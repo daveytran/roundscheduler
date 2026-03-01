@@ -1,6 +1,15 @@
 import { Schedule } from './Schedule'
 import { ScheduleRule } from './ScheduleRule'
 
+const DEBUG_OPTIMIZER =
+  process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_OPTIMIZER === 'true'
+
+function debugLog(...args: unknown[]) {
+  if (DEBUG_OPTIMIZER) {
+    console.log(...args)
+  }
+}
+
 type OptimizationState<T> = {
   currentSchedule: Schedule
   currentScore: number
@@ -85,7 +94,7 @@ export const SIMULATED_ANNEALING_OPTIMIZE: Optimize<number> = (state, iteration,
         // Debug: Log swap attempts occasionally
         if (Math.random() < 0.02) {
           const success = newSchedule !== null
-          console.log(`🔄 SwapMatches attempt ${attempts}: ${match1.team1.name} vs ${match1.team2.name} (slot ${match1.timeSlot}) ↔ ${match2.team1.name} vs ${match2.team2.name} (slot ${match2.timeSlot}) - ${success ? 'Success' : 'Failed'}`)
+          debugLog(`🔄 SwapMatches attempt ${attempts}: ${match1.team1.name} vs ${match1.team2.name} (slot ${match1.timeSlot}) ↔ ${match2.team1.name} vs ${match2.team2.name} (slot ${match2.timeSlot}) - ${success ? 'Success' : 'Failed'}`)
         }
       }
     } else if (useRefereeGeneration) {
@@ -99,7 +108,7 @@ export const SIMULATED_ANNEALING_OPTIMIZE: Optimize<number> = (state, iteration,
       
       // Debug: Log referee generation attempts occasionally
       if (Math.random() < 0.01) {
-        console.log(`👥 RefereeGeneration attempt ${attempts}: ${success ? 'Success' : 'Failed'}`)
+        debugLog(`👥 RefereeGeneration attempt ${attempts}: ${success ? 'Success' : 'Failed'}`)
       }
     } else {
       // Get all unique time slots that have non-locked, non-special matches
@@ -132,7 +141,7 @@ export const SIMULATED_ANNEALING_OPTIMIZE: Optimize<number> = (state, iteration,
           const success = newSchedule !== null
           const slot1Matches = state.currentSchedule.matches.filter(m => m.timeSlot === timeSlot1).length
           const slot2Matches = state.currentSchedule.matches.filter(m => m.timeSlot === timeSlot2).length
-          console.log(`🔄 SwapTimeSlots attempt ${attempts}: slot ${timeSlot1} (${slot1Matches} matches) ↔ slot ${timeSlot2} (${slot2Matches} matches) - ${success ? 'Success' : 'Failed'}`)
+          debugLog(`🔄 SwapTimeSlots attempt ${attempts}: slot ${timeSlot1} (${slot1Matches} matches) ↔ slot ${timeSlot2} (${slot2Matches} matches) - ${success ? 'Success' : 'Failed'}`)
         }
       }
     }
@@ -142,7 +151,7 @@ export const SIMULATED_ANNEALING_OPTIMIZE: Optimize<number> = (state, iteration,
   if (newSchedule === null) {
     newSchedule = state.currentSchedule.randomize()
     if (Math.random() < 0.01) {
-      console.log(`⚠️ All targeted swaps failed after ${attempts} attempts, falling back to randomization`)
+      debugLog(`⚠️ All targeted swaps failed after ${attempts} attempts, falling back to randomization`)
     }
   }
 
@@ -150,7 +159,7 @@ export const SIMULATED_ANNEALING_OPTIMIZE: Optimize<number> = (state, iteration,
   
   // Debug: Check if the new approach is producing changes
   if (newScore === state.currentScore && Math.random() < 0.02) {
-    console.log(`⚠️ Targeted optimization produced same score: ${newScore}`)
+    debugLog(`⚠️ Targeted optimization produced same score: ${newScore}`)
   }
 
   // Skip solutions with critical violations 
@@ -158,7 +167,7 @@ export const SIMULATED_ANNEALING_OPTIMIZE: Optimize<number> = (state, iteration,
   if (criticalViolation) {
     // Log occasionally to see if this is happening too often
     if (Math.random() < 0.01) {
-      console.log(`❌ Rejecting solution due to critical violation: ${criticalViolation.description}`)
+      debugLog(`❌ Rejecting solution due to critical violation: ${criticalViolation.description}`)
     }
     temperature *= coolingRate
     return {
@@ -174,7 +183,7 @@ export const SIMULATED_ANNEALING_OPTIMIZE: Optimize<number> = (state, iteration,
   // Always update best schedule if we found a better one
   if (newScore < state.bestScore) {
     bestSchedule = newSchedule.deepCopy()
-    console.log(`🎉 New best score found: ${newScore} (was ${state.bestScore})`)
+    debugLog(`🎉 New best score found: ${newScore} (was ${state.bestScore})`)
   }
 
   // Accept new schedule as current based on acceptance probability
@@ -246,7 +255,7 @@ function groupMatchesByDivision(matches: any[]) {
 /**
  * Strategic swapping based on rule violations
  */
-function strategicSwap(schedule: Schedule): Schedule {
+function strategicSwap(schedule: Schedule, rules: ScheduleRule[]): Schedule {
   const violations = schedule.violations
   if (violations.length === 0) return schedule
 
@@ -279,7 +288,7 @@ function strategicSwap(schedule: Schedule): Schedule {
         // Try swapping the matches directly
         const swappedSchedule = schedule.swapMatches(match1, match2)
         if (swappedSchedule !== null) {
-          const score = swappedSchedule.evaluate([])
+          const score = swappedSchedule.evaluate(rules)
           if (score < bestScore) {
             bestResult = swappedSchedule
             bestScore = score
@@ -301,7 +310,7 @@ function strategicSwap(schedule: Schedule): Schedule {
       if (affectedSlot !== otherSlot) {
         const timeSlotSwapped = schedule.swapTimeSlots(affectedSlot, otherSlot)
         if (timeSlotSwapped !== null) {
-          const score = timeSlotSwapped.evaluate([])
+          const score = timeSlotSwapped.evaluate(rules)
           if (score < bestScore) {
             bestResult = timeSlotSwapped
             bestScore = score
@@ -326,7 +335,7 @@ function strategicSwap(schedule: Schedule): Schedule {
         if (Math.abs(heavy.load - light.load) >= 2) { // Only if significant difference
           const timeSlotSwapped = schedule.swapTimeSlots(heavy.slot, light.slot)
           if (timeSlotSwapped !== null) {
-            const score = timeSlotSwapped.evaluate([])
+            const score = timeSlotSwapped.evaluate(rules)
             if (score < bestScore) {
               bestResult = timeSlotSwapped
               bestScore = score
@@ -398,7 +407,7 @@ function strategicImprovement(schedule: Schedule, rules: ScheduleRule[]): Schedu
   
   // First, try strategic swaps targeting specific violations
   for (let attempt = 0; attempt < 3; attempt++) {
-    const swappedSchedule = strategicSwap(improved)
+    const swappedSchedule = strategicSwap(improved, rules)
     swappedSchedule.evaluate(rules)
     
     if (swappedSchedule.score <= improved.score) {

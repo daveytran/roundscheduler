@@ -5,6 +5,15 @@ import { SIMULATED_ANNEALING_OPTIMIZE, OptimizationStrategyInfo } from './Optimi
 import { RuleViolation } from './RuleViolation'
 import { ScheduleRule } from './ScheduleRule'
 
+const DEBUG_OPTIMIZER =
+  process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_OPTIMIZER === 'true'
+
+function debugLog(...args: unknown[]) {
+  if (DEBUG_OPTIMIZER) {
+    console.log(...args)
+  }
+}
+
 /**
  * Schedule class represents a tournament schedule
  * with matches and scheduling rules
@@ -361,43 +370,71 @@ export class Schedule {
         // Skip the scatter logic below since we're falling back
       } else {
 
-      // Preserve time slot distribution while scattering divisions
-      // Group all regular matches by their current time slot
-      const allMatchesBySlot = new Map<number, typeof regularMatches>()
-      regularMatches.forEach(match => {
-        if (!allMatchesBySlot.has(match.timeSlot)) {
-          allMatchesBySlot.set(match.timeSlot, [])
-        }
-        allMatchesBySlot.get(match.timeSlot)!.push(match)
-      })
-      
-      // For each time slot, shuffle the matches within that slot and reassign fields
-      allMatchesBySlot.forEach((slotMatches, timeSlot) => {
-        shuffleArray(slotMatches)
-        
-        // Reassign fields within this time slot to create variety
-        const availableFields = [...allFields]
-        shuffleArray(availableFields)
-        
-        slotMatches.forEach((match, index) => {
-          const oldField = match.field
-          if (index < availableFields.length) {
-            match.field = availableFields[index]
-          } else {
-            // If more matches than fields, assign cyclically
-            match.field = availableFields[index % availableFields.length]
+      // Truly scatter divisions by interleaving division matches, then redistributing time slots.
+      const divisionMatches = ScheduleHelpers.groupMatchesByDivision(regularMatches)
+      const divisionOrder = Object.keys(divisionMatches).filter(div => divisionMatches[div].length > 0)
+      shuffleArray(divisionOrder)
+
+      // Shuffle each division's own match order before interleaving.
+      divisionOrder.forEach(division => shuffleArray(divisionMatches[division]))
+
+      const interleavedMatches: Match[] = []
+      let matchesRemaining = regularMatches.length
+      while (matchesRemaining > 0) {
+        for (const division of divisionOrder) {
+          const divisionQueue = divisionMatches[division]
+          if (divisionQueue.length > 0) {
+            interleavedMatches.push(divisionQueue.shift()!)
+            matchesRemaining--
           }
-          
-          if (match.field !== oldField) {
+        }
+      }
+
+      // Build a slot pool from available slots while respecting per-slot field capacity.
+      const shuffledSlots = [...availableSlots]
+      shuffleArray(shuffledSlots)
+      const slotPool: number[] = []
+      for (const slot of shuffledSlots) {
+        for (let i = 0; i < fieldsPerTimeSlot && slotPool.length < regularMatches.length; i++) {
+          slotPool.push(slot)
+        }
+      }
+
+      // Assign interleaved matches into the slot pool.
+      interleavedMatches.forEach((match, index) => {
+        const oldTimeSlot = match.timeSlot
+        const nextTimeSlot = slotPool[index]
+        if (nextTimeSlot !== undefined && nextTimeSlot !== oldTimeSlot) {
+          match.timeSlot = nextTimeSlot
+          changesDetected = true
+        }
+      })
+
+      // Reassign fields per slot to prevent conflicts.
+      const matchesBySlot = new Map<number, Match[]>()
+      interleavedMatches.forEach(match => {
+        if (!matchesBySlot.has(match.timeSlot)) {
+          matchesBySlot.set(match.timeSlot, [])
+        }
+        matchesBySlot.get(match.timeSlot)!.push(match)
+      })
+
+      matchesBySlot.forEach(slotMatches => {
+        const shuffledFields = [...allFields]
+        shuffleArray(shuffledFields)
+        slotMatches.forEach((match, index) => {
+          const nextField = shuffledFields[index % shuffledFields.length]
+          if (nextField !== match.field) {
+            match.field = nextField
             changesDetected = true
           }
         })
       })
 
-      // Group the matches by division for referee shuffling
-      const divisionMatches = ScheduleHelpers.groupMatchesByDivision(regularMatches)
-      for (const division in divisionMatches) {
-        this.shuffleRefereeAssignments(divisionMatches[division])
+      // Shuffle referee assignments within each division after slot changes.
+      const scatteredByDivision = ScheduleHelpers.groupMatchesByDivision(interleavedMatches)
+      for (const division in scatteredByDivision) {
+        this.shuffleRefereeAssignments(scatteredByDivision[division])
       }
 
       if (shouldLog && changesDetected) {
@@ -406,7 +443,6 @@ export class Schedule {
         console.log(`    Original: ${originalArrangement.map(a => `${a.slot}:${a.division}`).join(', ')}`)
         console.log(`    New:      ${newArrangement.map(a => `${a.slot}:${a.division}`).join(', ')}`)
 
-        // Show how divisions are now distributed
         const divisionSlots: Record<string, number[]> = {}
         newArrangement.forEach(a => {
           if (!divisionSlots[a.division]) divisionSlots[a.division] = []
@@ -866,7 +902,7 @@ export class Schedule {
 
     let storage: any = null
     
-    console.log(`🚀 Starting optimization with strategy: ${strategy?.name || 'Simulated Annealing'}`)
+    debugLog(`🚀 Starting optimization with strategy: ${strategy?.name || 'Simulated Annealing'}`)
 
     // Initial progress update to show starting state
     progressCallback?.({
@@ -888,7 +924,7 @@ export class Schedule {
 
         // Only log major checkpoints to reduce noise
         if (i % 200 === 0 && i > 0) {
-          console.log(`📊 Progress checkpoint at iteration ${i}: best=${bestScore}, current=${currentSchedule.score}`)
+          debugLog(`📊 Progress checkpoint at iteration ${i}: best=${bestScore}, current=${currentSchedule.score}`)
         }
 
         // Always send a fresh copy of the current best schedule

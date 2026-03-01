@@ -1,19 +1,34 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Schedule } from '../models/Schedule';
 import { Match } from '../models/Match';
 import { ScheduleRule } from '../models/ScheduleRule';
 import { OptimizerSettings } from '../lib/localStorage';
-import { OPTIMIZATION_STRATEGIES, OptimizationStrategyInfo } from '../models/OptimizationStrategy';
+import { OPTIMIZATION_STRATEGIES } from '../models/OptimizationStrategy';
 import ScheduleVisualization from './ScheduleVisualization';
 
-// Type for the progress callback info
-interface OptimizationProgressInfo {
-  iteration: number;
-  progress: number;
-  currentScore: number;
-  bestScore: number;
-  temperature: number;
-  violations: any[];
+function normalizeStrategyId(strategyId?: string): string {
+  if (strategyId && OPTIMIZATION_STRATEGIES.some(strategy => strategy.id === strategyId)) {
+    return strategyId;
+  }
+  return OPTIMIZATION_STRATEGIES[0]?.id || 'simulated-annealing';
+}
+
+function getMatchesFingerprint(matches: Match[]): string {
+  return matches
+    .map(match =>
+      [
+        match.team1?.name || '',
+        match.team2?.name || '',
+        match.timeSlot,
+        match.field,
+        match.division,
+        match.refereeTeam?.name || '',
+        match.activityType,
+        match.locked ? '1' : '0',
+      ].join('|')
+    )
+    .sort()
+    .join('||');
 }
 
 // Props interface
@@ -35,7 +50,7 @@ export default function ScheduleOptimizer({
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [iterations, setIterations] = useState(initialSettings?.iterations || 10000);
-  const [strategyId, setStrategyId] = useState(initialSettings?.strategyId || 'simulated-annealing');
+  const [strategyId, setStrategyId] = useState(normalizeStrategyId(initialSettings?.strategyId));
   const [originalScore, setOriginalScore] = useState<number | null>(null);
   const [currentScore, setCurrentScore] = useState<number | null>(null);
   const [bestScore, setBestScore] = useState<number | null>(null);
@@ -44,26 +59,34 @@ export default function ScheduleOptimizer({
   const [showLiveVisualization, setShowLiveVisualization] = useState(true);
   const [lastUpdateIteration, setLastUpdateIteration] = useState<number>(0);
   
-  // New state for tracking original matches and current optimized schedule
-  const [originalMatches, setOriginalMatches] = useState<Match[]>([]);
+  // Track original imported matches and continuation state
+  const [originalMatches, setOriginalMatches] = useState<Match[]>(matches || []);
   const [currentOptimizedSchedule, setCurrentOptimizedSchedule] = useState<Schedule | null>(null);
+  const originalMatchesFingerprintRef = useRef<string>(getMatchesFingerprint(matches || []));
 
-  // Throttling state for live updates
-  const [lastUIUpdate, setLastUIUpdate] = useState<number>(0);
+  // Throttling refs to avoid stale closure state inside optimization callback
+  const lastUIUpdateRef = useRef<number>(0);
+  const bestScoreRef = useRef<number | null>(null);
 
-  // Update original matches when matches prop changes
+  // Reset continuation when imported match content changes (not just length)
   useEffect(() => {
-    if (matches && matches.length > 0) {
-      setOriginalMatches(matches);
-      // Only reset scores if we have completely new matches (different count or content)
-      if (originalMatches.length !== matches.length) {
-        setCurrentOptimizedSchedule(null);
-        setOriginalScore(null);
-        setCurrentScore(null);
-        setBestScore(null);
-      }
+    const nextMatches = matches || [];
+    const incomingFingerprint = getMatchesFingerprint(nextMatches);
+
+    if (incomingFingerprint !== originalMatchesFingerprintRef.current) {
+      originalMatchesFingerprintRef.current = incomingFingerprint;
+      setCurrentOptimizedSchedule(null);
+      setOriginalScore(null);
+      setCurrentScore(null);
+      setBestScore(null);
+      setRenderedSchedule(null);
+      setError(null);
+      bestScoreRef.current = null;
+      lastUIUpdateRef.current = 0;
     }
-  }, [matches, originalMatches.length]);
+
+    setOriginalMatches(nextMatches);
+  }, [matches]);
 
   // Track if settings were changed by user vs props to prevent feedback loop
   const [userChangedSettings, setUserChangedSettings] = useState(false);
@@ -72,7 +95,7 @@ export default function ScheduleOptimizer({
   useEffect(() => {
     if (initialSettings && !userChangedSettings) {
       setIterations(initialSettings.iterations);
-      setStrategyId(initialSettings.strategyId || 'simulated-annealing');
+      setStrategyId(normalizeStrategyId(initialSettings.strategyId));
     }
   }, [initialSettings, userChangedSettings]);
 
@@ -94,7 +117,8 @@ export default function ScheduleOptimizer({
       setProgress(0);
       setRenderedSchedule(null);
       setLastUpdateIteration(0);
-      setLastUIUpdate(0); // Reset throttling timer
+      lastUIUpdateRef.current = 0;
+      bestScoreRef.current = null;
       setUserChangedSettings(false); // Reset user changes flag so future prop updates work
 
       if (!originalMatches || originalMatches.length === 0) {
@@ -143,6 +167,7 @@ export default function ScheduleOptimizer({
       
       setCurrentScore(startingScore);
       setBestScore(startingScore);
+      bestScoreRef.current = startingScore;
       
       console.log(`Starting optimization: ${originalMatches.length} matches, ${rules.length} rules, starting score ${startingScore}`);
       
@@ -151,7 +176,7 @@ export default function ScheduleOptimizer({
       setLastUpdateIteration(0);
 
       // Find the selected optimization strategy
-      const selectedStrategy = OPTIMIZATION_STRATEGIES.find(s => s.id === strategyId);
+      const selectedStrategy = OPTIMIZATION_STRATEGIES.find(s => s.id === strategyId) || OPTIMIZATION_STRATEGIES[0];
 
       // Optimize the schedule (pass rules to optimize method)
       const optimized = await startingSchedule.optimize(rules, iterations, info => {
@@ -164,8 +189,8 @@ export default function ScheduleOptimizer({
         
         // Throttle visualization updates after initial iterations to prevent flashing
         const now = Date.now();
-        const timeSinceLastUpdate = now - lastUIUpdate;
-        const isImprovement = bestScore !== null && info.bestScore < bestScore;
+        const timeSinceLastUpdate = now - lastUIUpdateRef.current;
+        const isImprovement = bestScoreRef.current !== null && info.bestScore < bestScoreRef.current;
         const isNearCompletion = info.progress >= 0.99;
         
         const shouldUpdate = isEarlyIteration || // Always update first few iterations
@@ -176,6 +201,7 @@ export default function ScheduleOptimizer({
         if (shouldUpdate) {
           // Update best score and visualization
           setBestScore(info.bestScore);
+          bestScoreRef.current = info.bestScore;
           
           // Update visualization
           if (info.currentSchedule) {
@@ -183,7 +209,7 @@ export default function ScheduleOptimizer({
             setLastUpdateIteration(info.iteration);
           }
           
-          setLastUIUpdate(now);
+          lastUIUpdateRef.current = now;
         }
       }, selectedStrategy);
 
@@ -221,6 +247,8 @@ export default function ScheduleOptimizer({
       setBestScore(null);
       setRenderedSchedule(null);
       setError(null);
+      bestScoreRef.current = null;
+      lastUIUpdateRef.current = 0;
       console.log('🔄 Reset to original schedule');
       
       // Notify parent component with original schedule
@@ -238,6 +266,8 @@ export default function ScheduleOptimizer({
 
   const hasOptimizedSchedule = currentOptimizedSchedule !== null;
   const isStartingFromOptimized = hasOptimizedSchedule && !isOptimizing;
+  const hasMultipleStrategies = OPTIMIZATION_STRATEGIES.length > 1;
+  const selectedStrategy = OPTIMIZATION_STRATEGIES.find(s => s.id === strategyId) || OPTIMIZATION_STRATEGIES[0];
 
   return (
     <div className="p-4 bg-white rounded shadow">
@@ -245,31 +275,39 @@ export default function ScheduleOptimizer({
 
       <div className="mb-4">
         <p className="text-sm text-gray-600 mb-2">
-          The optimizer will attempt to minimize rule violations using different strategies. 
+          The optimizer uses simulated annealing to minimize rule violations. 
           {isStartingFromOptimized 
             ? ' Continue optimizing from your current result, or reset to start over.'
-            : ' Choose a strategy that best fits your needs and adjust iterations for better results.'
+            : hasMultipleStrategies
+              ? ' Choose a strategy that best fits your needs and adjust iterations for better results.'
+              : ' Adjust iterations to trade off speed vs solution quality.'
           }
         </p>
 
         <div className="flex items-center gap-4 mb-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Optimization Strategy</label>
-            <select
-              value={strategyId}
-              onChange={e => {
-                setStrategyId(e.target.value);
-                setUserChangedSettings(true);
-              }}
-              className="w-48 p-2 border rounded"
-              disabled={isOptimizing}
-            >
-              {OPTIMIZATION_STRATEGIES.map(strategy => (
-                <option key={strategy.id} value={strategy.id}>
-                  {strategy.name}
-                </option>
-              ))}
-            </select>
+            {hasMultipleStrategies ? (
+              <select
+                value={strategyId}
+                onChange={e => {
+                  setStrategyId(normalizeStrategyId(e.target.value));
+                  setUserChangedSettings(true);
+                }}
+                className="w-48 p-2 border rounded"
+                disabled={isOptimizing}
+              >
+                {OPTIMIZATION_STRATEGIES.map(strategy => (
+                  <option key={strategy.id} value={strategy.id}>
+                    {strategy.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="w-48 p-2 border rounded bg-gray-50 text-gray-700 text-sm">
+                {selectedStrategy?.name || 'Simulated Annealing'}
+              </div>
+            )}
           </div>
 
           <div>
@@ -330,15 +368,12 @@ export default function ScheduleOptimizer({
         )}
 
         {/* Strategy Description */}
-        {(() => {
-          const selectedStrategy = OPTIMIZATION_STRATEGIES.find(s => s.id === strategyId);
-          return selectedStrategy ? (
-            <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded">
-              <h4 className="font-medium text-blue-900 mb-1">{selectedStrategy.name}</h4>
-              <p className="text-sm text-blue-700">{selectedStrategy.description}</p>
-            </div>
-          ) : null;
-        })()}
+        {selectedStrategy ? (
+          <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded">
+            <h4 className="font-medium text-blue-900 mb-1">{selectedStrategy.name}</h4>
+            <p className="text-sm text-blue-700">{selectedStrategy.description}</p>
+          </div>
+        ) : null}
 
         {isOptimizing && (
           <div className="mb-4">
