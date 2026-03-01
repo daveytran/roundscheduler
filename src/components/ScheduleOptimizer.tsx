@@ -55,9 +55,14 @@ export default function ScheduleOptimizer({
   const [progress, setProgress] = useState(0);
   const [iterations, setIterations] = useState(initialSettings?.iterations || 10000);
   const [strategyId, setStrategyId] = useState(normalizeStrategyId(initialSettings?.strategyId));
-  const [originalScore, setOriginalScore] = useState<number | null>(null);
-  const [currentScore, setCurrentScore] = useState<number | null>(null);
-  const [bestScore, setBestScore] = useState<number | null>(null);
+  const [originalScore, setOriginalScore] = useState<number | null>(null); // pain points
+  const [originalObjectiveScore, setOriginalObjectiveScore] = useState<number | null>(null);
+  const [currentScore, setCurrentScore] = useState<number | null>(null); // objective
+  const [bestScore, setBestScore] = useState<number | null>(null); // objective
+  const [currentPainScore, setCurrentPainScore] = useState<number | null>(null);
+  const [bestPainScore, setBestPainScore] = useState<number | null>(null);
+  const [currentSpreadPenaltyScore, setCurrentSpreadPenaltyScore] = useState<number | null>(null);
+  const [bestSpreadPenaltyScore, setBestSpreadPenaltyScore] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [renderedSchedule, setRenderedSchedule] = useState<Schedule | null>(null);
   const [showLiveVisualization, setShowLiveVisualization] = useState(true);
@@ -87,8 +92,13 @@ export default function ScheduleOptimizer({
       setCurrentOptimizedSchedule(null);
       continuationScheduleRef.current = null;
       setOriginalScore(null);
+      setOriginalObjectiveScore(null);
       setCurrentScore(null);
       setBestScore(null);
+      setCurrentPainScore(null);
+      setBestPainScore(null);
+      setCurrentSpreadPenaltyScore(null);
+      setBestSpreadPenaltyScore(null);
       setRenderedSchedule(null);
       setError(null);
       bestScoreRef.current = null;
@@ -154,6 +164,7 @@ export default function ScheduleOptimizer({
       // Determine starting point: use current optimized schedule if available, otherwise original matches
       let startingSchedule: Schedule;
       let preservedOriginalScore = originalScore;
+      let preservedOriginalObjectiveScore = originalObjectiveScore;
       
       const continuationSource = continuationScheduleRef.current || currentOptimizedSchedule;
 
@@ -164,7 +175,12 @@ export default function ScheduleOptimizer({
         if (continuationSource.originalScore !== undefined) {
           preservedOriginalScore = continuationSource.originalScore;
         }
-        console.log(`🔄 Continuing optimization from previous result with score ${startingSchedule.score}`);
+        if (continuationSource.originalObjectiveScore !== undefined) {
+          preservedOriginalObjectiveScore = continuationSource.originalObjectiveScore;
+        }
+        console.log(
+          `🔄 Continuing optimization from previous result with objective ${startingSchedule.objectiveScore}`
+        );
       } else {
         // Start optimization from original matches
         startingSchedule = new Schedule(originalMatches);
@@ -173,26 +189,40 @@ export default function ScheduleOptimizer({
 
       // Initial evaluation to get the starting score
       startingSchedule.evaluate(rules);
-      const startingScore = startingSchedule.score;
+      const startingPainScore = startingSchedule.score;
+      const startingObjectiveScore = startingSchedule.objectiveScore;
       const startingViolationCount = startingSchedule.violations?.length || 0;
       
       // Set original score only if this is the first optimization
       if (preservedOriginalScore === null) {
-        preservedOriginalScore = startingScore;
-        setOriginalScore(startingScore);
+        preservedOriginalScore = startingPainScore;
+        setOriginalScore(startingPainScore);
       } else {
         setOriginalScore(preservedOriginalScore);
       }
+
+      if (preservedOriginalObjectiveScore === null) {
+        preservedOriginalObjectiveScore = startingObjectiveScore;
+        setOriginalObjectiveScore(startingObjectiveScore);
+      } else {
+        setOriginalObjectiveScore(preservedOriginalObjectiveScore);
+      }
       
-      setCurrentScore(startingScore);
-      setBestScore(startingScore);
-      bestScoreRef.current = startingScore;
+      setCurrentScore(startingObjectiveScore);
+      setBestScore(startingObjectiveScore);
+      setCurrentPainScore(startingPainScore);
+      setBestPainScore(startingPainScore);
+      setCurrentSpreadPenaltyScore(startingSchedule.spreadPenaltyScore);
+      setBestSpreadPenaltyScore(startingSchedule.spreadPenaltyScore);
+      bestScoreRef.current = startingObjectiveScore;
       setLiveBaselineViolationCount(startingViolationCount);
       setLiveBestViolationCount(startingViolationCount);
       setLiveLatestViolationChange(0);
       previousViolationCountRef.current = startingViolationCount;
       
-      console.log(`Starting optimization: ${originalMatches.length} matches, ${rules.length} rules, starting score ${startingScore}`);
+      console.log(
+        `Starting optimization: ${originalMatches.length} matches, ${rules.length} rules, pain ${startingPainScore}, objective ${startingObjectiveScore}`
+      );
       
       // Set initial schedule for visualization
       setRenderedSchedule(startingSchedule.deepCopy());
@@ -205,9 +235,18 @@ export default function ScheduleOptimizer({
       const bestScheduleFromRunRef = { current: null as Schedule | null };
 
       const optimized = await startingSchedule.optimize(rules, iterations, info => {
+        const objectiveCurrentScore = info.currentObjectiveScore ?? info.currentScore;
+        const objectiveBestScore = info.bestObjectiveScore ?? info.bestScore;
+
         // Update progress and current score immediately (very lightweight)
         setProgress(info.progress);
-        setCurrentScore(info.currentScore); // Always update current score for responsiveness
+        setCurrentScore(objectiveCurrentScore);
+        if (info.currentPainScore !== undefined) {
+          setCurrentPainScore(info.currentPainScore);
+        }
+        if (info.currentSpreadPenaltyScore !== undefined) {
+          setCurrentSpreadPenaltyScore(info.currentSpreadPenaltyScore);
+        }
 
         if (info.bestScheduleSnapshot) {
           bestScheduleFromRunRef.current = info.bestScheduleSnapshot.deepCopy();
@@ -219,7 +258,7 @@ export default function ScheduleOptimizer({
         // Throttle visualization updates after initial iterations to prevent flashing
         const now = Date.now();
         const timeSinceLastUpdate = now - lastUIUpdateRef.current;
-        const isImprovement = bestScoreRef.current !== null && info.bestScore < bestScoreRef.current;
+        const isImprovement = bestScoreRef.current !== null && objectiveBestScore < bestScoreRef.current;
         const isNearCompletion = info.progress >= 0.99;
         
         const shouldUpdate = isEarlyIteration || // Always update first few iterations
@@ -229,8 +268,14 @@ export default function ScheduleOptimizer({
 
         if (shouldUpdate) {
           // Update best score and visualization
-          setBestScore(info.bestScore);
-          bestScoreRef.current = info.bestScore;
+          setBestScore(objectiveBestScore);
+          if (info.bestPainScore !== undefined) {
+            setBestPainScore(info.bestPainScore);
+          }
+          if (info.bestSpreadPenaltyScore !== undefined) {
+            setBestSpreadPenaltyScore(info.bestSpreadPenaltyScore);
+          }
+          bestScoreRef.current = objectiveBestScore;
 
           // Update visualization
           if (info.currentSchedule) {
@@ -260,6 +305,9 @@ export default function ScheduleOptimizer({
       if (preservedOriginalScore !== null) {
         finalizedOptimized.originalScore = preservedOriginalScore;
       }
+      if (preservedOriginalObjectiveScore !== null) {
+        finalizedOptimized.originalObjectiveScore = preservedOriginalObjectiveScore;
+      }
 
       // Store the optimized schedule for future continuation
       setCurrentOptimizedSchedule(finalizedOptimized);
@@ -285,8 +333,13 @@ export default function ScheduleOptimizer({
       setCurrentOptimizedSchedule(null);
       continuationScheduleRef.current = null;
       setOriginalScore(null);
+      setOriginalObjectiveScore(null);
       setCurrentScore(null);
       setBestScore(null);
+      setCurrentPainScore(null);
+      setBestPainScore(null);
+      setCurrentSpreadPenaltyScore(null);
+      setBestSpreadPenaltyScore(null);
       setRenderedSchedule(null);
       setError(null);
       bestScoreRef.current = null;
@@ -303,6 +356,7 @@ export default function ScheduleOptimizer({
         originalSchedule.evaluate(rules);
         // Clear any originalScore property since this is the original
         originalSchedule.originalScore = undefined;
+        originalSchedule.originalObjectiveScore = undefined;
         onOptimizationComplete(originalSchedule);
       }
     }
@@ -321,7 +375,7 @@ export default function ScheduleOptimizer({
 
       <div className="mb-4">
         <p className="text-sm text-gray-600 mb-2">
-          The optimizer uses simulated annealing to minimize rule violations. 
+          The optimizer uses simulated annealing to reduce total pain points while spreading pain more fairly across teams and players. 
           {isStartingFromOptimized 
             ? ' Continue optimizing from your current result, or reset to start over.'
             : hasMultipleStrategies
@@ -404,11 +458,11 @@ export default function ScheduleOptimizer({
             <div className="flex items-center gap-2">
               <span className="text-blue-600">🎯</span>
               <span className="text-sm text-blue-800 font-medium">
-                Ready to continue from optimized schedule (Score: {currentOptimizedSchedule?.score})
+                Ready to continue from optimized schedule (Objective: {currentOptimizedSchedule?.objectiveScore.toFixed(2)})
               </span>
             </div>
             <p className="text-xs text-blue-700 mt-1">
-              Next optimization will start from your current results, not the original schedule.
+              Next optimization starts from this result. Pain: {currentOptimizedSchedule?.score}, spread penalty: {currentOptimizedSchedule?.spreadPenaltyScore.toFixed(2)}.
             </p>
           </div>
         )}
@@ -435,32 +489,40 @@ export default function ScheduleOptimizer({
           </div>
         )}
 
-        {(originalScore !== null || currentScore !== null || bestScore !== null) && (
+        {(originalScore !== null || originalObjectiveScore !== null || currentScore !== null || bestScore !== null) && (
           <div className="p-3 bg-gray-50 border rounded">
             <h3 className="font-bold mb-2">Optimization Results</h3>
             
             {/* Debug info - remove in production */}
             {process.env.NODE_ENV === 'development' && (
               <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
-                <strong>Debug:</strong> Original: {originalScore}, Best: {bestScore}, Current: {currentScore}
+                <strong>Debug:</strong> Original pain: {originalScore}, Original objective: {originalObjectiveScore}, Best objective: {bestScore}, Current objective: {currentScore}
               </div>
             )}
 
-            {/* Always show original score if available */}
-            {originalScore !== null && (
+            {(originalScore !== null || originalObjectiveScore !== null) && (
               <div className="mb-2">
                 <p className="text-sm">
-                  <span className="font-medium">Original Score:</span> {originalScore}
-                  {originalScore === 0 ? ' (Already perfect!)' : ''}
+                  {originalScore !== null && (
+                    <>
+                      <span className="font-medium">Original pain points:</span> {originalScore}
+                    </>
+                  )}
+                  {originalScore !== null && originalObjectiveScore !== null && <span className="mx-2 text-gray-400">|</span>}
+                  {originalObjectiveScore !== null && (
+                    <>
+                      <span className="font-medium">Original objective:</span> {originalObjectiveScore.toFixed(2)}
+                    </>
+                  )}
                 </p>
               </div>
             )}
 
-            {/* Show current score during optimization (before best score for logical flow) */}
+            {/* Show current objective during optimization */}
             {isOptimizing && currentScore !== null && (
               <div className="mb-2">
                 <p className="text-sm text-blue-600">
-                  <span className="font-medium">Current Score:</span> {currentScore}
+                  <span className="font-medium">Current objective:</span> {currentScore.toFixed(2)}
                   {bestScore !== null && currentScore === bestScore && (
                     <span className="ml-2 text-xs text-blue-500">(matches best)</span>
                   )}
@@ -471,31 +533,54 @@ export default function ScheduleOptimizer({
                     <span className="ml-2 text-xs text-green-600">(improvement!)</span> 
                   )}
                 </p>
+                {(currentPainScore !== null || currentSpreadPenaltyScore !== null) && (
+                  <p className="text-xs text-blue-700">
+                    Pain: {currentPainScore ?? '-'} | Spread penalty: {currentSpreadPenaltyScore?.toFixed(2) ?? '-'}
+                  </p>
+                )}
               </div>
             )}
 
-            {/* Show best score independently */}
+            {/* Show best objective independently */}
             {bestScore !== null && (
               <div className="mb-2">
                 <p className="text-sm">
-                  <span className="font-medium">Best Score:</span> {bestScore}
+                  <span className="font-medium">Best objective:</span> {bestScore.toFixed(2)}
                   {bestScore === 0 ? ' 🎉 (Perfect schedule!)' : ''}
                 </p>
+                {(bestPainScore !== null || bestSpreadPenaltyScore !== null) && (
+                  <p className="text-xs text-gray-700">
+                    Pain: {bestPainScore ?? '-'} | Spread penalty: {bestSpreadPenaltyScore?.toFixed(2) ?? '-'}
+                  </p>
+                )}
 
-                {/* Show improvement only if we have both scores */}
-                {originalScore !== null && originalScore !== bestScore && (
+                {/* Objective change summary */}
+                {originalObjectiveScore !== null && originalObjectiveScore !== bestScore && originalObjectiveScore > 0 && (
                   <div className="mt-1">
                     <p className="text-xs text-green-700 bg-green-50 px-2 py-1 rounded">
-                      ✅ Improvement: {originalScore - bestScore} points (
-                      {Math.round(((originalScore - bestScore) / originalScore) * 100)}% better)
+                      ✅ Objective improved by {(originalObjectiveScore - bestScore).toFixed(2)} points (
+                      {Math.round(((originalObjectiveScore - bestScore) / originalObjectiveScore) * 100)}% better)
                     </p>
                   </div>
                 )}
 
-                {originalScore !== null && originalScore === bestScore && originalScore > 0 && (
+                {originalScore !== null && bestPainScore !== null && (
+                  <div className="mt-1">
+                    <p
+                      className={`text-xs px-2 py-1 rounded ${
+                        bestPainScore <= originalScore ? 'text-green-700 bg-green-50' : 'text-amber-700 bg-amber-50'
+                      }`}
+                    >
+                      Pain points change: {bestPainScore - originalScore > 0 ? '+' : ''}
+                      {bestPainScore - originalScore}
+                    </p>
+                  </div>
+                )}
+
+                {originalObjectiveScore !== null && originalObjectiveScore === bestScore && originalObjectiveScore > 0 && (
                   <div className="mt-1">
                     <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded">
-                      ⚠️ No improvement found - try more iterations or adjust rules
+                      ⚠️ No objective improvement found - try more iterations or adjust rules
                     </p>
                   </div>
                 )}
@@ -520,7 +605,7 @@ export default function ScheduleOptimizer({
         </label>
         {showLiveVisualization && (
           <p className="text-xs text-gray-500 mt-1 ml-6">
-            Watch as violations are reduced and the schedule score improves during optimization. Updates immediately when improvements are found.
+            Watch objective score, pain points, and spread metrics update live as optimization runs.
           </p>
         )}
       </div>
@@ -537,11 +622,11 @@ export default function ScheduleOptimizer({
               </div>
               {renderedSchedule && (
                 <div className={`px-2 py-1 rounded text-xs font-medium ${
-                  renderedSchedule.score === 0 
+                  renderedSchedule.objectiveScore === 0 
                     ? 'bg-green-100 text-green-800' 
                     : 'bg-amber-100 text-amber-800'
                 }`}>
-                  Score: {renderedSchedule.score} | Violations: {renderedSchedule.violations?.length || 0}
+                  Objective: {renderedSchedule.objectiveScore.toFixed(2)} | Pain: {renderedSchedule.score} | Spread penalty: {renderedSchedule.spreadPenaltyScore.toFixed(2)} | Violations: {renderedSchedule.violations?.length || 0}
                 </div>
               )}
             </div>

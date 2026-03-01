@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { Schedule } from '../models/Schedule'
 import { Match } from '../models/Match'
 import { RuleViolation } from '../models/RuleViolation'
+import { PainSpreadGroupMetrics, calculatePainSpreadMetrics } from '../lib/pain-spread'
 
 interface ScheduleVisualizationProps {
   schedule: Schedule
@@ -97,6 +98,13 @@ interface EntityGroupAnalytics {
   ruleImpactSummaries: RuleImpactSummary[]
 }
 
+type PainSpreadBlock = {
+  key: string
+  color: string
+  entityName: string
+  sharePercent: number
+}
+
 type ViolationEntityGroup = 'team' | 'player' | 'other'
 
 export interface ScheduleVisualizationSettings {
@@ -167,6 +175,71 @@ type ParsedViolationMetric = {
 
 function formatMetricNumber(value: number): string {
   return Number.isInteger(value) ? `${value}` : value.toFixed(1)
+}
+
+function formatPercent(value: number): string {
+  return `${Math.round(value * 100)}%`
+}
+
+function getConcentrationTone(normalizedConcentration: number): string {
+  if (normalizedConcentration >= 0.7) {
+    return 'bg-red-50 border-red-200 text-red-800'
+  }
+  if (normalizedConcentration >= 0.4) {
+    return 'bg-amber-50 border-amber-200 text-amber-800'
+  }
+  return 'bg-green-50 border-green-200 text-green-800'
+}
+
+function buildPainSpreadBlocks(group: PainSpreadGroupMetrics, blockCount = 60): PainSpreadBlock[] {
+  if (group.totalPain <= 0 || group.entities.length === 0) {
+    return []
+  }
+
+  const maxEntities = 12
+  const visibleEntities = group.entities.slice(0, maxEntities)
+  const hiddenEntities = group.entities.slice(maxEntities)
+  const hiddenPain = hiddenEntities.reduce((sum, entity) => sum + entity.pain, 0)
+  const bucketEntities =
+    hiddenPain > 0
+      ? [...visibleEntities, { name: 'Other', pain: hiddenPain, violations: 0, share: hiddenPain / group.totalPain }]
+      : visibleEntities
+
+  const quotas = bucketEntities.map(entity => (entity.pain / group.totalPain) * blockCount)
+  const baseBlocks = quotas.map(quota => Math.floor(quota))
+  let assignedBlocks = baseBlocks.reduce((sum, count) => sum + count, 0)
+
+  if (assignedBlocks < blockCount) {
+    const remainders = quotas
+      .map((quota, index) => ({ index, remainder: quota - Math.floor(quota) }))
+      .sort((left, right) => right.remainder - left.remainder)
+
+    let remainderIndex = 0
+    while (assignedBlocks < blockCount) {
+      const target = remainders[remainderIndex % remainders.length]
+      baseBlocks[target.index] += 1
+      assignedBlocks += 1
+      remainderIndex += 1
+    }
+  }
+
+  const blocks: PainSpreadBlock[] = []
+  bucketEntities.forEach((entity, entityIndex) => {
+    const hue = (entityIndex * 53) % 360
+    const color = `hsl(${hue}, 72%, 52%)`
+    const sharePercent = (entity.pain / group.totalPain) * 100
+
+    for (let i = 0; i < baseBlocks[entityIndex]; i += 1) {
+      blocks.push({
+        key: `${entity.name}-${i}`,
+        color,
+        entityName: entity.name,
+        sharePercent,
+      })
+    }
+  })
+
+  return blocks.slice(0, blockCount)
 }
 
 function parseViolationMetric(description: string): ParsedViolationMetric | null {
@@ -622,6 +695,24 @@ export default function ScheduleVisualization({
     }
   }, [filteredViolationsByEntity])
 
+  const filteredPainSpread = useMemo(() => {
+    if (filteredVisibleViolations.length === 0) {
+      return calculatePainSpreadMetrics([], 0)
+    }
+
+    const fallbackPainPerViolation =
+      visibleViolations.length > 0 && schedule.score > 0 ? schedule.score / visibleViolations.length : 1
+
+    const filteredPainScore = filteredVisibleViolations.reduce((sum, violation) => {
+      if (typeof violation.painPoints === 'number' && Number.isFinite(violation.painPoints) && violation.painPoints > 0) {
+        return sum + violation.painPoints
+      }
+      return sum + fallbackPainPerViolation
+    }, 0)
+
+    return calculatePainSpreadMetrics(filteredVisibleViolations, filteredPainScore)
+  }, [filteredVisibleViolations, visibleViolations.length, schedule.score])
+
   const initialViolationCount = liveViolationBaseline
   const bestViolationCount = liveBestViolationCount
   const latestViolationChange = liveLatestViolationChange
@@ -898,7 +989,7 @@ export default function ScheduleVisualization({
             className="flex items-center justify-between w-full text-left hover:bg-amber-100 rounded p-1 -m-1"
           >
             <h3 className="font-bold text-amber-800">
-              Schedule Violations (Score: {schedule.score}) - {visibleViolations.length} violation
+              Schedule Violations (Pain: {schedule.score}, Objective: {schedule.objectiveScore.toFixed(2)}) - {visibleViolations.length} violation
               {visibleViolations.length !== 1 ? 's' : ''}
             </h3>
             <svg
@@ -1026,10 +1117,130 @@ export default function ScheduleVisualization({
               </div>
             )}
 
+            {filteredVisibleViolations.length > 0 && (
+              <div className="border rounded p-3 bg-white">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <h4 className="text-sm font-semibold text-gray-800">Pain Spread</h4>
+                  <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1 rounded">
+                    Objective: {filteredPainSpread.objectiveScore.toFixed(2)} (Pain {filteredPainSpread.totalPainScore} + Penalty{' '}
+                    {filteredPainSpread.spreadPenaltyScore.toFixed(2)})
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                  <div className="border rounded p-3 bg-gray-50">
+                    <div className="text-[11px] uppercase tracking-wide text-gray-600 mb-2">League-wide spread</div>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">Combined spread</span>
+                        <span className="font-semibold text-gray-800">{formatPercent(filteredPainSpread.combinedSpread)}</span>
+                      </div>
+                      <div className="h-2 rounded bg-gray-200 overflow-hidden">
+                        <div
+                          className="h-full bg-green-500"
+                          style={{ width: `${Math.max(filteredPainSpread.combinedSpread * 100, filteredPainSpread.combinedSpread > 0 ? 4 : 0)}%` }}
+                        ></div>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">Concentration</span>
+                        <span className="font-semibold text-gray-800">{formatPercent(filteredPainSpread.combinedConcentration)}</span>
+                      </div>
+                      <div className="h-2 rounded bg-gray-200 overflow-hidden">
+                        <div
+                          className="h-full bg-red-500"
+                          style={{ width: `${Math.max(filteredPainSpread.combinedConcentration * 100, filteredPainSpread.combinedConcentration > 0 ? 4 : 0)}%` }}
+                        ></div>
+                      </div>
+                      <p className="text-[11px] text-gray-600">
+                        Higher spread means pain is shared across more entities. Lower concentration is better.
+                      </p>
+                    </div>
+                  </div>
+
+                  {(['team', 'player'] as const).map(entityType => {
+                    const group = filteredPainSpread[entityType]
+                    const blocks = buildPainSpreadBlocks(group)
+                    const entityLabel = entityType === 'team' ? 'Teams' : 'Players'
+                    const toneClass = getConcentrationTone(group.normalizedConcentration)
+
+                    return (
+                      <div key={`pain-${entityType}`} className={`border rounded p-3 ${toneClass}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <h5 className="text-sm font-semibold">{entityLabel}</h5>
+                          <span className="text-xs bg-white/80 border border-white rounded px-2 py-0.5">
+                            {group.affectedEntities} affected
+                          </span>
+                        </div>
+
+                        {group.totalPain === 0 ? (
+                          <p className="text-xs text-gray-600">No direct {entityType} pain tracked in current filters.</p>
+                        ) : (
+                          <div className="space-y-2 text-xs">
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="border rounded p-2 bg-white/80">
+                                <div className="text-[10px] uppercase tracking-wide text-gray-500">Spread</div>
+                                <div className="font-semibold text-gray-800">{formatPercent(group.normalizedSpread)}</div>
+                              </div>
+                              <div className="border rounded p-2 bg-white/80">
+                                <div className="text-[10px] uppercase tracking-wide text-gray-500">Top Share</div>
+                                <div className="font-semibold text-gray-800">{formatPercent(group.topShare)}</div>
+                              </div>
+                            </div>
+
+                            <div className="h-2 rounded bg-white/70 overflow-hidden">
+                              <div
+                                className="h-full bg-green-500"
+                                style={{ width: `${Math.max(group.normalizedSpread * 100, group.normalizedSpread > 0 ? 4 : 0)}%` }}
+                              ></div>
+                            </div>
+
+                            <div>
+                              <div className="text-[11px] font-semibold text-gray-700 mb-1">Distribution Grid</div>
+                              <div className="grid grid-cols-12 gap-1">
+                                {blocks.map((block: PainSpreadBlock) => (
+                                  <span
+                                    key={`${entityType}-${block.key}`}
+                                    className="h-2.5 rounded-sm"
+                                    style={{ backgroundColor: block.color }}
+                                    title={`${block.entityName}: ${block.sharePercent.toFixed(1)}%`}
+                                  ></span>
+                                ))}
+                              </div>
+                            </div>
+
+                            {group.entities.length > 0 && (
+                              <div className="space-y-1">
+                                {group.entities.slice(0, 3).map((entity, index) => (
+                                  <div key={`${entityType}-leader-${entity.name}`} className="flex items-center justify-between text-[11px]">
+                                    <span className="text-gray-700">
+                                      {showSpecificEntities ? entity.name : `${entityLabel.slice(0, -1)} ${index + 1}`}
+                                    </span>
+                                    <span className="font-semibold text-gray-800">
+                                      {entity.pain.toFixed(1)} pts ({formatPercent(entity.share)})
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             {isLiveUpdating && initialViolationCount !== null && (
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="px-2 py-1 rounded bg-gray-100 text-gray-700">Start: {initialViolationCount}</span>
                 <span className="px-2 py-1 rounded bg-gray-100 text-gray-700">Current: {violations.length}</span>
+                <span className="px-2 py-1 rounded bg-blue-100 text-blue-700">
+                  Objective: {schedule.objectiveScore.toFixed(2)}
+                </span>
+                <span className="px-2 py-1 rounded bg-indigo-100 text-indigo-700">
+                  Spread: {formatPercent(filteredPainSpread.combinedSpread)}
+                </span>
                 <span
                   className={`px-2 py-1 rounded ${
                     violationChangeFromStart <= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'

@@ -155,7 +155,8 @@ export const SIMULATED_ANNEALING_OPTIMIZE: Optimize<number> = (state, iteration,
     }
   }
 
-  const newScore = newSchedule.evaluate(rules)
+  newSchedule.evaluate(rules)
+  const newScore = newSchedule.objectiveScore
   
   // Debug: Check if the new approach is producing changes
   if (newScore === state.currentScore && Math.random() < 0.02) {
@@ -270,7 +271,7 @@ function strategicSwap(schedule: Schedule, rules: ScheduleRule[]): Schedule {
   
   // Try multiple approaches to address the violation
   let bestResult = schedule
-  let bestScore = schedule.score
+  let bestScore = schedule.objectiveScore
 
   // Approach 1: Direct match swapping
   const affectedMatches = schedule.matches.filter(match => {
@@ -288,7 +289,8 @@ function strategicSwap(schedule: Schedule, rules: ScheduleRule[]): Schedule {
         // Try swapping the matches directly
         const swappedSchedule = schedule.swapMatches(match1, match2)
         if (swappedSchedule !== null) {
-          const score = swappedSchedule.evaluate(rules)
+          swappedSchedule.evaluate(rules)
+          const score = swappedSchedule.objectiveScore
           if (score < bestScore) {
             bestResult = swappedSchedule
             bestScore = score
@@ -310,7 +312,8 @@ function strategicSwap(schedule: Schedule, rules: ScheduleRule[]): Schedule {
       if (affectedSlot !== otherSlot) {
         const timeSlotSwapped = schedule.swapTimeSlots(affectedSlot, otherSlot)
         if (timeSlotSwapped !== null) {
-          const score = timeSlotSwapped.evaluate(rules)
+          timeSlotSwapped.evaluate(rules)
+          const score = timeSlotSwapped.objectiveScore
           if (score < bestScore) {
             bestResult = timeSlotSwapped
             bestScore = score
@@ -335,7 +338,8 @@ function strategicSwap(schedule: Schedule, rules: ScheduleRule[]): Schedule {
         if (Math.abs(heavy.load - light.load) >= 2) { // Only if significant difference
           const timeSlotSwapped = schedule.swapTimeSlots(heavy.slot, light.slot)
           if (timeSlotSwapped !== null) {
-            const score = timeSlotSwapped.evaluate(rules)
+            timeSlotSwapped.evaluate(rules)
+            const score = timeSlotSwapped.objectiveScore
             if (score < bestScore) {
               bestResult = timeSlotSwapped
               bestScore = score
@@ -410,7 +414,7 @@ function strategicImprovement(schedule: Schedule, rules: ScheduleRule[]): Schedu
     const swappedSchedule = strategicSwap(improved, rules)
     swappedSchedule.evaluate(rules)
     
-    if (swappedSchedule.score <= improved.score) {
+    if (swappedSchedule.objectiveScore <= improved.objectiveScore) {
       improved = swappedSchedule
     } else {
       break // Stop if swaps are making things worse
@@ -421,7 +425,7 @@ function strategicImprovement(schedule: Schedule, rules: ScheduleRule[]): Schedu
   improved = tryStrategicTimeSlotSwaps(improved, rules)
   
   // Finally, fall back to conservative randomization if needed
-  if (improved.score >= schedule.score) {
+  if (improved.objectiveScore >= schedule.objectiveScore) {
     improved = conservativeRandomization(improved, schedule)
   }
   
@@ -442,7 +446,7 @@ function tryStrategicTimeSlotSwaps(schedule: Schedule, rules: ScheduleRule[]): S
   // Try strategic time slot swaps (3 attempts max to avoid infinite loops)
   for (let attempt = 0; attempt < 3; attempt++) {
     let bestSwap: Schedule | null = null
-    let bestScore = improved.score
+    let bestScore = improved.objectiveScore
     
     // Try swapping different combinations of time slots
     for (let i = 0; i < timeSlots.length - 1; i++) {
@@ -460,7 +464,8 @@ function tryStrategicTimeSlotSwaps(schedule: Schedule, rules: ScheduleRule[]): S
           const swappedSchedule = improved.swapTimeSlots(timeSlot1, timeSlot2)
           
           if (swappedSchedule !== null) {
-            const score = swappedSchedule.evaluate(rules)
+            swappedSchedule.evaluate(rules)
+            const score = swappedSchedule.objectiveScore
             
             if (score < bestScore) {
               bestSwap = swappedSchedule

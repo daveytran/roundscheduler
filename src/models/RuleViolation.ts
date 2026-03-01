@@ -12,4 +12,6 @@ export interface RuleViolation {
   matches?: Match[]
   /** Severity level of the violation */
   level: 'note' | 'warning' | 'alert' | 'critical'
+  /** Pain points contributed by this violation (derived from rule priority) */
+  painPoints?: number
 }

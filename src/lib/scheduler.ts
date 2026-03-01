@@ -13,9 +13,15 @@ import {
 export interface OptimizationProgressInfo {
   iteration: number;
   progress: number;
-  currentScore: number;
-  bestScore: number;
+  currentScore: number; // pain points (backward-compatible field)
+  bestScore: number; // pain points (backward-compatible field)
   violations: RuleViolation[];
+  currentObjectiveScore?: number;
+  bestObjectiveScore?: number;
+  currentPainScore?: number;
+  bestPainScore?: number;
+  currentSpreadPenaltyScore?: number;
+  bestSpreadPenaltyScore?: number;
   currentSchedule?: Schedule; // Current schedule being evaluated
   bestScheduleSnapshot?: Schedule; // Best schedule found so far
 }

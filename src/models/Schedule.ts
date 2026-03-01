@@ -1,5 +1,6 @@
 import { ScheduleHelpers } from '../lib/schedule-helpers'
 import { OptimizationProgressInfo } from '../lib/scheduler'
+import { PainSpreadMetrics, calculatePainSpreadMetrics } from '../lib/pain-spread'
 import { Match } from './Match'
 import { SIMULATED_ANNEALING_OPTIMIZE, OptimizationStrategyInfo } from './OptimizationStrategy'
 import { RuleViolation } from './RuleViolation'
@@ -22,7 +23,12 @@ export class Schedule {
   matches: Match[]
   violations: RuleViolation[]
   score: number
+  painScore: number
+  spreadPenaltyScore: number
+  objectiveScore: number
+  painSpreadMetrics: PainSpreadMetrics
   originalScore?: number // Score before optimization
+  originalObjectiveScore?: number // Objective score before optimization
 
   constructor(matches?: (Match | any)[] | null) {
     // Ensure we always have an array
@@ -52,6 +58,10 @@ export class Schedule {
     
     this.violations = []
     this.score = 0 // Lower is better (fewer rule violations)
+    this.painScore = 0
+    this.spreadPenaltyScore = 0
+    this.objectiveScore = 0
+    this.painSpreadMetrics = calculatePainSpreadMetrics([], 0)
   }
 
   /**
@@ -71,6 +81,9 @@ export class Schedule {
   evaluate(rules: ScheduleRule[], verbose: boolean = false) {
     this.violations = []
     this.score = 0
+    this.painScore = 0
+    this.spreadPenaltyScore = 0
+    this.objectiveScore = 0
 
     // Sort matches by time slot
     this.matches.sort((a, b) => a.timeSlot - b.timeSlot)
@@ -84,12 +97,24 @@ export class Schedule {
         console.log(`⚠️ Rule "${rule.name}" found ${ruleViolations.length} violations (priority ${rule.priority})`)
       }
 
-      this.score += ruleViolations.length * rule.priority
-      this.violations = [...this.violations, ...ruleViolations]
+      const ruleViolationsWithPain = ruleViolations.map((violation: RuleViolation) => ({
+        ...violation,
+        painPoints: rule.priority,
+      }))
+
+      this.painScore += ruleViolationsWithPain.length * rule.priority
+      this.violations = [...this.violations, ...ruleViolationsWithPain]
     }
 
+    this.score = this.painScore
+    this.painSpreadMetrics = calculatePainSpreadMetrics(this.violations, this.painScore)
+    this.spreadPenaltyScore = this.painSpreadMetrics.spreadPenaltyScore
+    this.objectiveScore = this.painSpreadMetrics.objectiveScore
+
     if (verbose) {
-      console.log(`📊 Schedule evaluated: ${this.violations.length} total violations, score = ${this.score}`)
+      console.log(
+        `📊 Schedule evaluated: ${this.violations.length} total violations, pain = ${this.score}, spread penalty = ${this.spreadPenaltyScore}, objective = ${this.objectiveScore}`
+      )
     }
     return this.score
   }
@@ -885,6 +910,7 @@ export class Schedule {
     // Initial evaluation
     this.evaluate(rules)
     const originalScore = this.score
+    const originalObjectiveScore = this.objectiveScore
     
     // Use provided strategy or default to simulated annealing
     const optimizationStrategy = strategy?.optimize || SIMULATED_ANNEALING_OPTIMIZE
@@ -895,10 +921,11 @@ export class Schedule {
 
     let bestSchedule = this.deepCopy()
     bestSchedule.evaluate(rules)
-    let bestScore = bestSchedule.score
+    let bestScore = bestSchedule.objectiveScore
 
     // Store the original score in the best schedule
     bestSchedule.originalScore = originalScore
+    bestSchedule.originalObjectiveScore = originalObjectiveScore
 
     let storage: any = null
     
@@ -909,8 +936,14 @@ export class Schedule {
       iteration: 0,
       progress: 0,
       currentScore: currentSchedule.score,
-      bestScore: bestScore,
+      bestScore: bestSchedule.score,
       violations: bestSchedule.violations,
+      currentObjectiveScore: currentSchedule.objectiveScore,
+      bestObjectiveScore: bestSchedule.objectiveScore,
+      currentPainScore: currentSchedule.score,
+      bestPainScore: bestSchedule.score,
+      currentSpreadPenaltyScore: currentSchedule.spreadPenaltyScore,
+      bestSpreadPenaltyScore: bestSchedule.spreadPenaltyScore,
       currentSchedule: currentSchedule,
       bestScheduleSnapshot: bestSchedule.deepCopy(),
     })
@@ -924,7 +957,7 @@ export class Schedule {
 
         // Only log major checkpoints to reduce noise
         if (i % 200 === 0 && i > 0) {
-          debugLog(`📊 Progress checkpoint at iteration ${i}: best=${bestScore}, current=${currentSchedule.score}`)
+          debugLog(`📊 Progress checkpoint at iteration ${i}: best=${bestScore}, current=${currentSchedule.objectiveScore}`)
         }
 
         // Always send a fresh copy of the current best schedule
@@ -932,9 +965,9 @@ export class Schedule {
         bestScheduleSnapshot.evaluate(rules) // Ensure violations are up to date
 
         // Verify the snapshot matches the best score
-        if (bestScheduleSnapshot.score !== bestScore) {
+        if (bestScheduleSnapshot.objectiveScore !== bestScore) {
           console.warn(
-            `⚠️ Regular update mismatch: bestScore=${bestScore}, scheduleScore=${bestScheduleSnapshot.score}`
+            `⚠️ Regular update mismatch: bestScore=${bestScore}, scheduleObjective=${bestScheduleSnapshot.objectiveScore}`
           )
         }
 
@@ -942,15 +975,21 @@ export class Schedule {
           iteration: i,
           progress: i / iterations,
           currentScore: currentSchedule.score,
-          bestScore: bestScore,
+          bestScore: bestScheduleSnapshot.score,
           violations: bestScheduleSnapshot.violations,
+          currentObjectiveScore: currentSchedule.objectiveScore,
+          bestObjectiveScore: bestScheduleSnapshot.objectiveScore,
+          currentPainScore: currentSchedule.score,
+          bestPainScore: bestScheduleSnapshot.score,
+          currentSpreadPenaltyScore: currentSchedule.spreadPenaltyScore,
+          bestSpreadPenaltyScore: bestScheduleSnapshot.spreadPenaltyScore,
           currentSchedule: currentSchedule,
           bestScheduleSnapshot: bestScheduleSnapshot,
         })
       }
       // Create a new candidate solution using selected strategy
       const optimizationResult = optimizationStrategy(
-        { currentSchedule, currentScore: currentSchedule.score, bestScore, bestSchedule, storage },
+        { currentSchedule, currentScore: currentSchedule.objectiveScore, bestScore, bestSchedule, storage },
         i,
         iterations,
         rules
@@ -970,8 +1009,9 @@ export class Schedule {
       // Update best schedule if optimization strategy found a better one
       if (optimizationResult.bestSchedule) {
         bestSchedule = optimizationResult.bestSchedule
-        bestScore = bestSchedule.score // Score should already be calculated
+        bestScore = bestSchedule.objectiveScore // Objective score should already be calculated
         bestSchedule.originalScore = originalScore
+        bestSchedule.originalObjectiveScore = originalObjectiveScore
 
         // Immediately notify UI of improvement (don't wait for next regular update)
         // Critical: Use the NEWLY FOUND best schedule, not a copy of previous best
@@ -982,8 +1022,14 @@ export class Schedule {
           iteration: i,
           progress: i / iterations,
           currentScore: currentSchedule.score,
-          bestScore: bestScore,
+          bestScore: immediateBestSnapshot.score,
           violations: immediateBestSnapshot.violations,
+          currentObjectiveScore: currentSchedule.objectiveScore,
+          bestObjectiveScore: immediateBestSnapshot.objectiveScore,
+          currentPainScore: currentSchedule.score,
+          bestPainScore: immediateBestSnapshot.score,
+          currentSpreadPenaltyScore: currentSchedule.spreadPenaltyScore,
+          bestSpreadPenaltyScore: immediateBestSnapshot.spreadPenaltyScore,
           currentSchedule: currentSchedule,
           bestScheduleSnapshot: immediateBestSnapshot,
         })
@@ -998,8 +1044,14 @@ export class Schedule {
       iteration: iterations,
       progress: 1,
       currentScore: currentSchedule.score,
-      bestScore: bestScore,
+      bestScore: finalBestScheduleSnapshot.score,
       violations: finalBestScheduleSnapshot.violations,
+      currentObjectiveScore: currentSchedule.objectiveScore,
+      bestObjectiveScore: finalBestScheduleSnapshot.objectiveScore,
+      currentPainScore: currentSchedule.score,
+      bestPainScore: finalBestScheduleSnapshot.score,
+      currentSpreadPenaltyScore: currentSchedule.spreadPenaltyScore,
+      bestSpreadPenaltyScore: finalBestScheduleSnapshot.spreadPenaltyScore,
       currentSchedule: currentSchedule,
       bestScheduleSnapshot: finalBestScheduleSnapshot,
     })
@@ -1167,8 +1219,23 @@ export class Schedule {
   deepCopy() {
     const copy = new Schedule(copyMatches(this.matches))
     copy.score = this.score
+    copy.painScore = this.painScore
+    copy.spreadPenaltyScore = this.spreadPenaltyScore
+    copy.objectiveScore = this.objectiveScore
+    copy.painSpreadMetrics = {
+      ...this.painSpreadMetrics,
+      team: {
+        ...this.painSpreadMetrics.team,
+        entities: this.painSpreadMetrics.team.entities.map(entity => ({ ...entity })),
+      },
+      player: {
+        ...this.painSpreadMetrics.player,
+        entities: this.painSpreadMetrics.player.entities.map(entity => ({ ...entity })),
+      },
+    }
     copy.violations = [...this.violations] // Shallow copy is sufficient for violations array
     copy.originalScore = this.originalScore
+    copy.originalObjectiveScore = this.originalObjectiveScore
     
     // Verify match integrity (debug assertions)
     if (copy.matches.length !== this.matches.length) {

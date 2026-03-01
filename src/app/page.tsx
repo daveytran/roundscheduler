@@ -102,6 +102,7 @@ const getInitialHomeState = (): HomeInitialState => {
     if (savedData.schedule) {
       restoredSchedule.score = savedData.schedule.score || 0;
       restoredSchedule.originalScore = savedData.schedule.originalScore;
+      restoredSchedule.originalObjectiveScore = savedData.schedule.originalObjectiveScore;
 
       const ruleInstances = effectiveRuleConfigurations
         .map(createRuleFromConfiguration)
@@ -229,7 +230,11 @@ export default function Home() {
   type ScheduleLike = {
     matches?: Match[];
     score?: number;
+    objectiveScore?: number;
+    spreadPenaltyScore?: number;
+    painScore?: number;
     originalScore?: number;
+    originalObjectiveScore?: number;
     violations?: RuleViolation[];
   };
   
@@ -242,8 +247,24 @@ export default function Home() {
       
       // Safely copy properties
       newSchedule.score = typeof optimizedSchedule.score === 'number' ? optimizedSchedule.score : 0;
+      if (typeof optimizedSchedule.painScore === 'number') {
+        newSchedule.painScore = optimizedSchedule.painScore;
+      }
+      if (typeof optimizedSchedule.objectiveScore === 'number') {
+        newSchedule.objectiveScore = optimizedSchedule.objectiveScore;
+      } else {
+        newSchedule.objectiveScore = newSchedule.score;
+      }
+      if (typeof optimizedSchedule.spreadPenaltyScore === 'number') {
+        newSchedule.spreadPenaltyScore = optimizedSchedule.spreadPenaltyScore;
+      } else {
+        newSchedule.spreadPenaltyScore = Math.max(0, newSchedule.objectiveScore - newSchedule.score);
+      }
       if (optimizedSchedule.originalScore !== undefined) {
         newSchedule.originalScore = optimizedSchedule.originalScore;
+      }
+      if (optimizedSchedule.originalObjectiveScore !== undefined) {
+        newSchedule.originalObjectiveScore = optimizedSchedule.originalObjectiveScore;
       }
       newSchedule.violations = Array.isArray(optimizedSchedule.violations) ? optimizedSchedule.violations : [];
       
@@ -538,51 +559,55 @@ export default function Home() {
                     <div>
                       <h3 className="text-lg font-semibold text-gray-800">Final Optimization Results</h3>
 
-                      {/* Show optimization comparison if available */}
-                      {schedule.originalScore !== undefined && schedule.originalScore !== schedule.score ? (
-                        <div className="space-y-1">
-                          <p className="text-sm text-gray-600">
-                            <span className="font-medium">Original score:</span> {schedule.originalScore}
-                            <span className="ml-2 text-gray-500">(before optimization)</span>
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            <span className="font-medium">Optimized score:</span> {schedule.score}
-                            {schedule.score === 0 ? (
-                              <span className="ml-2 text-green-600 font-medium">🎉 Perfect schedule!</span>
-                            ) : (
-                              <span className="ml-2 text-amber-600">(Lower is better)</span>
-                            )}
-                          </p>
-                          <p className="text-xs text-green-700 bg-green-50 px-2 py-1 rounded inline-block">
-                            ✅ Improved by {schedule.originalScore - schedule.score} points (
-                            {Math.round(((schedule.originalScore - schedule.score) / schedule.originalScore) * 100)}%
-                            better)
-                          </p>
-                        </div>
-                      ) : schedule.originalScore !== undefined && schedule.originalScore === schedule.score ? (
-                        <div className="space-y-1">
-                          <p className="text-sm text-gray-600">
-                            <span className="font-medium">Schedule score:</span> {schedule.score}
-                            {schedule.score === 0 ? (
-                              <span className="ml-2 text-green-600 font-medium">🎉 Perfect schedule!</span>
-                            ) : (
-                              <span className="ml-2 text-amber-600">(Lower is better)</span>
-                            )}
-                          </p>
-                          <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded inline-block">
-                            ⚠️ No improvement found during optimization
-                          </p>
-                        </div>
-                      ) : (
+                      <div className="space-y-1">
                         <p className="text-sm text-gray-600">
-                          Current schedule score: <span className="font-medium">{schedule.score}</span>
+                          <span className="font-medium">Pain points:</span> {schedule.score}
                           {schedule.score === 0 ? (
-                            <span className="ml-2 text-green-600 font-medium">🎉 Perfect schedule!</span>
+                            <span className="ml-2 text-green-600 font-medium">🎉 No pain points</span>
+                          ) : null}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">Spread penalty:</span> {schedule.spreadPenaltyScore.toFixed(2)}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">Objective score (optimized):</span> {schedule.objectiveScore.toFixed(2)}
+                          {schedule.objectiveScore === 0 ? (
+                            <span className="ml-2 text-green-600 font-medium">🎉 Perfect objective</span>
                           ) : (
                             <span className="ml-2 text-amber-600">(Lower is better)</span>
                           )}
                         </p>
-                      )}
+
+                        {schedule.originalObjectiveScore !== undefined && schedule.originalObjectiveScore > 0 && (
+                          <p
+                            className={`text-xs px-2 py-1 rounded inline-block ${
+                              schedule.objectiveScore < schedule.originalObjectiveScore
+                                ? 'text-green-700 bg-green-50'
+                                : schedule.objectiveScore > schedule.originalObjectiveScore
+                                  ? 'text-amber-700 bg-amber-50'
+                                  : 'text-gray-700 bg-gray-100'
+                            }`}
+                          >
+                            Objective change: {(schedule.objectiveScore - schedule.originalObjectiveScore).toFixed(2)}
+                            {schedule.objectiveScore < schedule.originalObjectiveScore
+                              ? ` (${Math.round(((schedule.originalObjectiveScore - schedule.objectiveScore) / schedule.originalObjectiveScore) * 100)}% better)`
+                              : ''}
+                          </p>
+                        )}
+
+                        {schedule.originalScore !== undefined && (
+                          <p
+                            className={`text-xs px-2 py-1 rounded inline-block ${
+                              schedule.score <= schedule.originalScore
+                                ? 'text-green-700 bg-green-50'
+                                : 'text-amber-700 bg-amber-50'
+                            }`}
+                          >
+                            Pain points change: {schedule.score - schedule.originalScore > 0 ? '+' : ''}
+                            {schedule.score - schedule.originalScore}
+                          </p>
+                        )}
+                      </div>
 
                       <p className="text-xs text-gray-500 mt-2">
                         This is the final optimized schedule. Live optimization progress is shown above during optimization.

@@ -173,6 +173,43 @@ describe('ScheduleVisualization', () => {
     expect(screen.getByText(/6 hrs at venue \(2 hrs over max\)/i)).toBeTruthy();
   });
 
+  it('shows pain spread metrics and distribution grids in violations-only mode', () => {
+    const match = createMockMatch('Team Spread A', 'Team Spread B', 8, 'Field 8', 'mixed', 'Team Spread C');
+    const schedule = new Schedule([match]);
+    schedule.score = 12;
+    schedule.violations = [
+      {
+        rule: 'Limit venue time',
+        description: 'Team Alpha needs to be at venue for 7.0 hours (max: 5h)',
+        level: 'warning',
+        painPoints: 4,
+        matches: [match],
+      },
+      {
+        rule: 'Limit venue time',
+        description: 'Team Beta needs to be at venue for 6.0 hours (max: 5h)',
+        level: 'warning',
+        painPoints: 4,
+        matches: [match],
+      },
+      {
+        rule: 'Manage rest time and gaps',
+        description: 'Player Jamie has insufficient rest (1 slots) between games in slots 3 and 4',
+        level: 'warning',
+        painPoints: 4,
+        matches: [match],
+      },
+    ];
+
+    render(<ScheduleVisualization schedule={schedule} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Violations Only' }));
+
+    expect(screen.getByText('Pain Spread')).toBeTruthy();
+    expect(screen.getByText('League-wide spread')).toBeTruthy();
+    expect(screen.getAllByText('Distribution Grid').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Objective:/i)).toBeTruthy();
+  });
+
   it('shows gap size details for manage rest time and gaps in specific view', () => {
     const match = createMockMatch('Team Gap A', 'Team Gap B', 7, 'Field 7', 'mixed', 'Team Gap C');
     const schedule = new Schedule([match]);
