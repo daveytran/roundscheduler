@@ -34,6 +34,7 @@ function evaluate(schedule) {
     expect(schedule.violations[0].rule).toBe('Legacy Custom Rule');
     expect(schedule.violations[0].description).toBe('Legacy severity output');
     expect(schedule.violations[0].level).toBe('alert');
+    expect(rule?.painUnit).toBe('per_player');
   });
 
   it('supports structured body-based custom rule definitions', () => {
@@ -67,6 +68,7 @@ violations.push({
     expect(schedule.violations).toHaveLength(1);
     expect(schedule.violations[0].rule).toBe('Structured Custom Rule');
     expect(schedule.violations[0].level).toBe('critical');
+    expect(rule?.painUnit).toBe('per_player');
   });
 
   it('preserves custom and duplicated rules during merge', () => {
@@ -118,8 +120,10 @@ violations.push({
     expect(duplicated?.type).toBe('duplicated');
     expect(duplicated?.baseRuleId).toBe('back_to_back');
     expect(duplicated?.category).toBe('both');
+    expect(duplicated?.painUnit).toBe('per_team');
 
     expect(builtin?.category).toBe('both');
+    expect(builtin?.painUnit).toBe('per_team');
     expect(merged.some(config => config.id === 'prevent_team_double_booking')).toBe(true);
   });
 });

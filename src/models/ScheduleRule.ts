@@ -4,14 +4,18 @@ import { RuleViolation } from './RuleViolation'
 import { Schedule } from './Schedule'
 import { Division } from './Team'
 
+export type RulePainUnit = 'per_player' | 'per_team'
+
 /**
  * Base class for schedule rules
  */
 export abstract class ScheduleRule {
-  priority
+  priority: number
+  painUnit: RulePainUnit
   abstract name: string
-  constructor(priority = 1) {
+  constructor(priority = 1, painUnit: RulePainUnit = 'per_player') {
     this.priority = priority // Higher priority means the rule is more important
+    this.painUnit = painUnit
   }
 
   /**
@@ -717,8 +721,13 @@ export class ManagePlayerGameBalance extends ScheduleRule {
 export class CustomRule extends ScheduleRule {
   name
   evaluateFunction
-  constructor(name: string, evaluateFunction: (schedule: Schedule) => RuleViolation[], priority = 1) {
-    super(priority)
+  constructor(
+    name: string,
+    evaluateFunction: (schedule: Schedule) => RuleViolation[],
+    priority = 1,
+    painUnit: RulePainUnit = 'per_player'
+  ) {
+    super(priority, painUnit)
     this.name = name
     this.evaluateFunction = evaluateFunction
   }
@@ -815,11 +824,15 @@ export class LimitVenueTime extends ScheduleRule {
       const hoursAtVenue = (slotsSpan * this.minutesPerSlot) / 60
 
       if (hoursAtVenue > this.maxHours) {
+        const overageHours = hoursAtVenue - this.maxHours
         violations.push({
           rule: this.name,
           description: `Player ${playerName} needs to be at venue for ${hoursAtVenue.toFixed(1)} hours (max: ${this.maxHours}h)`,
           matches: sortedMatches,
           level: 'warning',
+          painUnit: 'per_player',
+          painPoints: this.priority * overageHours,
+          affectedParticipants: 1,
         })
       }
     })
@@ -853,11 +866,14 @@ export class LimitVenueTime extends ScheduleRule {
       const hoursAtVenue = (slotsSpan * this.minutesPerSlot) / 60
 
       if (hoursAtVenue > this.maxHours) {
+        const overageHours = hoursAtVenue - this.maxHours
         violations.push({
           rule: this.name,
           description: `Team ${teamName} needs to be at venue for ${hoursAtVenue.toFixed(1)} hours (max: ${this.maxHours}h)`,
           matches: teamMatches,
           level: 'warning',
+          painUnit: 'per_player',
+          painPoints: this.priority * overageHours,
         })
       }
     }
@@ -1127,4 +1143,3 @@ export class PreventClubRefereeConflict extends ScheduleRule {
     return teamName; // If only one word, return the whole name
   }
 }
-

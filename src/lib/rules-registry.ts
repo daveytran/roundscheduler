@@ -11,6 +11,7 @@ import {
   ManagePlayerGameBalance,
   CustomRule as CustomRuleClass,
   PreventTeamDoubleBooking,
+  RulePainUnit,
   ScheduleRule,
   DetectMixedDivisionsInTimeSlot,
   PreventClubRefereeConflict,
@@ -40,7 +41,29 @@ export interface RuleDefinition {
   priority: number;
   enabled: boolean;
   ruleClass: any;
+  painUnit?: RulePainUnit;
+  priorityInputDescription?: string;
   parameters?: { [key: string]: RuleParameter };
+}
+
+function defaultPriorityDescriptionForUnit(painUnit: RulePainUnit): string {
+  return painUnit === 'per_team'
+    ? 'Pain points per team (shared across players)'
+    : 'Pain points per player';
+}
+
+function resolvePriorityInputDescription(painUnit: RulePainUnit, explicitDescription?: string): string {
+  return explicitDescription && explicitDescription.trim().length > 0
+    ? explicitDescription
+    : defaultPriorityDescriptionForUnit(painUnit);
+}
+
+function isRulePainUnit(value: unknown): value is RulePainUnit {
+  return value === 'per_player' || value === 'per_team';
+}
+
+function resolvePainUnit(value: unknown, fallback: RulePainUnit = 'per_player'): RulePainUnit {
+  return isRulePainUnit(value) ? value : fallback;
 }
 
 // Central registry of all available rules
@@ -58,6 +81,7 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     category: 'team',
     priority: 10,
     enabled: true,
+    painUnit: 'per_team',
     ruleClass: PreventTeamDoubleBooking,
   },
   {
@@ -68,6 +92,7 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     category: 'team',
     priority: 10,
     enabled: true,
+    painUnit: 'per_team',
     ruleClass: AvoidPlayingAfterSetup,
   },
 
@@ -80,6 +105,8 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     category: 'both',
     priority: 5,
     enabled: true,
+    painUnit: 'per_team',
+    priorityInputDescription: "Pain points per team for back-to-back (shared across that team's players)",
     ruleClass: AvoidBackToBackGames,
   },
   {
@@ -90,6 +117,7 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     category: 'both',
     priority: 4,
     enabled: true,
+    painUnit: 'per_team',
     ruleClass: AvoidFirstAndLastGame,
   },
   {
@@ -99,6 +127,8 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     category: 'both',
     priority: 2,
     enabled: true,
+    painUnit: 'per_player',
+    priorityInputDescription: 'Pain points per hour over max, per player',
     ruleClass: LimitVenueTime,
     parameters: {
       maxHours: {
@@ -131,6 +161,7 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     category: 'team',
     priority: 4,
     enabled: true,
+    painUnit: 'per_team',
     ruleClass: AvoidReffingBeforePlaying,
   },
   {
@@ -140,6 +171,7 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     category: 'team',
     priority: 3,
     enabled: true,
+    painUnit: 'per_team',
     ruleClass: BalanceRefereeAssignments,
     parameters: {
       maxRefereeDifference: {
@@ -160,6 +192,7 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     category: 'team',
     priority: 2,
     enabled: true,
+    painUnit: 'per_team',
     ruleClass: EnsureFairFieldDistribution,
     parameters: {
       fieldDistributionThreshold: {
@@ -182,6 +215,7 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     category: 'player',
     priority: 1,
     enabled: true,
+    painUnit: 'per_player',
     ruleClass: ManageRestTimeAndGaps,
     parameters: {
       minRestSlots: {
@@ -211,6 +245,7 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     category: 'player',
     priority: 1,
     enabled: true,
+    painUnit: 'per_player',
     ruleClass: ManagePlayerGameBalance,
     parameters: {
       maxGames: {
@@ -242,6 +277,7 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     category: 'player',
     priority: 1,
     enabled: false,
+    painUnit: 'per_player',
     ruleClass: EnsurePlayerWarmupTime,
     parameters: {
       minWarmupSlots: {
@@ -264,6 +300,7 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     category: 'both',
     priority: 2,
     enabled: true,
+    painUnit: 'per_team',
     ruleClass: DetectMixedDivisionsInTimeSlot,
   },
   {
@@ -273,6 +310,7 @@ export const RULES_REGISTRY: RuleDefinition[] = [
     category: 'team',
     priority: 3,
     enabled: true,
+    painUnit: 'per_team',
     ruleClass: PreventClubRefereeConflict,
   },
 ];
@@ -290,6 +328,11 @@ export function getDefaultRuleConfigurations(): RuleConfigurationData[] {
     priority: rule.priority,
     type: 'builtin' as const,
     category: rule.category,
+    painUnit: resolvePainUnit(rule.painUnit),
+    priorityInputDescription: resolvePriorityInputDescription(
+      resolvePainUnit(rule.painUnit),
+      rule.priorityInputDescription
+    ),
     configuredParams: rule.parameters
       ? Object.fromEntries(Object.entries(rule.parameters).map(([key, param]) => [key, param.default]))
       : undefined,
@@ -349,7 +392,9 @@ export function createRuleFromConfiguration(config: RuleConfigurationData): Sche
     }
 
     try {
-      return new ruleDef.ruleClass(...args);
+      const ruleInstance = new ruleDef.ruleClass(...args) as ScheduleRule;
+      ruleInstance.painUnit = resolvePainUnit(config.painUnit, resolvePainUnit(ruleDef.painUnit));
+      return ruleInstance;
     } catch (err) {
       console.error(`Error creating rule ${config.name}: ${(err as Error).message}`);
       return null;
@@ -363,7 +408,7 @@ export function createRuleFromConfiguration(config: RuleConfigurationData): Sche
 
     try {
       const evaluator = compileCustomRuleDefinition(customDefinition, config.name);
-      return new CustomRuleClass(config.name, evaluator, config.priority);
+      return new CustomRuleClass(config.name, evaluator, config.priority, resolvePainUnit(config.painUnit));
     } catch (err) {
       console.error(`Error creating custom rule ${config.name}: ${(err as Error).message}`);
       return null;
@@ -403,10 +448,17 @@ function migrateRuleConfigurations(configs: RuleConfigurationData[]): RuleConfig
         continue;
       }
 
+      const painUnit = resolvePainUnit(config.painUnit);
+
       migratedConfigs.push({
         ...config,
         code: customDefinition.source,
         customDefinition,
+        painUnit,
+        priorityInputDescription: resolvePriorityInputDescription(
+          painUnit,
+          config.priorityInputDescription
+        ),
       });
       continue;
     }
@@ -419,10 +471,16 @@ function migrateRuleConfigurations(configs: RuleConfigurationData[]): RuleConfig
       }
 
       const baseRule = getRuleDefinition(baseRuleId);
+      const painUnit = resolvePainUnit(config.painUnit, resolvePainUnit(baseRule?.painUnit));
       migratedConfigs.push({
         ...config,
         name: config.name || `${baseRule?.name ?? 'Rule'} (Copy)`,
         category: baseRule?.category || config.category,
+        painUnit,
+        priorityInputDescription: resolvePriorityInputDescription(
+          painUnit,
+          config.priorityInputDescription || baseRule?.priorityInputDescription
+        ),
       });
       continue;
     }
@@ -445,12 +503,19 @@ function migrateRuleConfigurations(configs: RuleConfigurationData[]): RuleConfig
       console.log(`🔄 Migrating rule: ${config.id} -> ${migratedId}`);
     }
 
+    const painUnit = resolvePainUnit(config.painUnit, resolvePainUnit(ruleDefinition.painUnit));
+
     migratedConfigs.push({
       ...config,
       id: migratedId,
       type: 'builtin',
       category: ruleDefinition.category,
       name: ruleDefinition.name,
+      painUnit,
+      priorityInputDescription: resolvePriorityInputDescription(
+        painUnit,
+        config.priorityInputDescription || ruleDefinition.priorityInputDescription
+      ),
     });
   }
 

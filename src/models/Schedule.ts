@@ -1,6 +1,7 @@
 import { ScheduleHelpers } from '../lib/schedule-helpers'
 import { OptimizationProgressInfo } from '../lib/scheduler'
 import { PainSpreadMetrics, calculatePainSpreadMetrics } from '../lib/pain-spread'
+import { calculateViolationPainScore } from '../lib/pain-scoring'
 import { Match } from './Match'
 import { SIMULATED_ANNEALING_OPTIMIZE, OptimizationStrategyInfo } from './OptimizationStrategy'
 import { RuleViolation } from './RuleViolation'
@@ -13,6 +14,10 @@ function debugLog(...args: unknown[]) {
   if (DEBUG_OPTIMIZER) {
     console.log(...args)
   }
+}
+
+function roundScore(value: number): number {
+  return Math.round(value * 100) / 100
 }
 
 /**
@@ -101,15 +106,28 @@ export class Schedule {
         console.log(`⚠️ Rule "${rule.name}" found ${ruleViolations.length} violations (priority ${rule.priority})`)
       }
 
-      const ruleViolationsWithPain = ruleViolations.map((violation: RuleViolation) => ({
-        ...violation,
-        painPoints: rule.priority,
-      }))
+      const ruleViolationsWithPain = ruleViolations.map((violation: RuleViolation) => {
+        const basePainPoints =
+          typeof violation.painPoints === 'number' && Number.isFinite(violation.painPoints) && violation.painPoints > 0
+            ? violation.painPoints
+            : rule.priority
+        const painScore = calculateViolationPainScore(violation, basePainPoints, rule.painUnit)
+        this.painScore += painScore.painPoints
 
-      this.painScore += ruleViolationsWithPain.length * rule.priority
+        return {
+          ...violation,
+          painPoints: painScore.painPoints,
+          painScope: painScore.scope,
+          painUnit: painScore.painUnit,
+          affectedParticipants: painScore.affectedParticipants,
+          painPerParticipant: painScore.painPerParticipant,
+        }
+      })
+
       this.violations = [...this.violations, ...ruleViolationsWithPain]
     }
 
+    this.painScore = roundScore(this.painScore)
     this.score = this.painScore
     this.painSpreadMetrics = calculatePainSpreadMetrics(this.violations, this.painScore)
     this.concentrationPenaltyScore = this.painSpreadMetrics.concentrationPenaltyScore

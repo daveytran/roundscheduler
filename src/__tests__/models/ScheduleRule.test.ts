@@ -266,6 +266,114 @@ describe('ScheduleRule Tests', () => {
     });
   });
 
+  describe('Pain scoring by scope', () => {
+    it('should score team-wide pain higher than single-player pain at the same priority', () => {
+      const priority = 4;
+      const matchData = [{ team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1' }];
+
+      const teamRule = new CustomRule(
+        'Team scope scoring',
+        (schedule: Schedule) => [
+          {
+            rule: 'Team scope scoring',
+            description: 'Team Team A has team-wide schedule pain',
+            level: 'warning',
+            matches: schedule.matches.slice(0, 1),
+          },
+        ],
+        priority
+      );
+
+      const playerRule = new CustomRule(
+        'Player scope scoring',
+        (schedule: Schedule) => [
+          {
+            rule: 'Player scope scoring',
+            description: 'Player Team A Player 1 has schedule pain',
+            level: 'warning',
+            matches: schedule.matches.slice(0, 1),
+          },
+        ],
+        priority
+      );
+
+      const teamSchedule = new Schedule(createMockMatches(matchData));
+      const playerSchedule = new Schedule(createMockMatches(matchData));
+
+      const teamScore = teamSchedule.evaluate([teamRule]);
+      const playerScore = playerSchedule.evaluate([playerRule]);
+
+      expect(teamScore).toBeGreaterThan(playerScore);
+      expect(teamSchedule.violations[0].painScope).toBe('team');
+      expect(teamSchedule.violations[0].painUnit).toBe('per_player');
+      expect(teamSchedule.violations[0].painPerParticipant).toBe(priority);
+      expect(playerSchedule.violations[0].painScope).toBe('player');
+      expect(playerSchedule.violations[0].painPerParticipant).toBe(priority);
+    });
+
+    it('should split per-team pain across players while keeping total team pain stable', () => {
+      const priority = 4;
+      const teamRule = new CustomRule(
+        'Team roster weighted scoring',
+        (schedule: Schedule) => [
+          {
+            rule: 'Team roster weighted scoring',
+            description: 'Team Team A has team-wide schedule pain',
+            level: 'warning',
+            matches: schedule.matches.slice(0, 1),
+          },
+        ],
+        priority,
+        'per_team'
+      );
+
+      const createScheduleWithTeamSize = (teamSize: number): Schedule => {
+        const teamPlayers = Array.from({ length: teamSize }, (_, index) => `Team A Player ${index + 1}`);
+        const teamA = createMockTeam('Team A', 'mixed', teamPlayers);
+        const teamB = createMockTeam('Team B', 'mixed', ['Team B Player 1', 'Team B Player 2']);
+        return new Schedule([new Match(teamA, teamB, 1, 'Field 1', 'mixed')]);
+      };
+
+      const smallTeamSchedule = createScheduleWithTeamSize(2);
+      const largeTeamSchedule = createScheduleWithTeamSize(10);
+      const smallTeamScore = smallTeamSchedule.evaluate([teamRule]);
+      const largeTeamScore = largeTeamSchedule.evaluate([teamRule]);
+
+      expect(smallTeamScore).toBe(priority);
+      expect(largeTeamScore).toBe(priority);
+      expect(largeTeamSchedule.violations[0].painPerParticipant).toBeLessThan(
+        smallTeamSchedule.violations[0].painPerParticipant!
+      );
+    });
+
+    it('should scale venue-time pain by hours over max per player', () => {
+      const lowOverageRule = new LimitVenueTime(2, 4, 30); // 2 pain points per hour over max, per player
+      const highOverageRule = new LimitVenueTime(2, 4, 30);
+
+      const lowOverageSchedule = new Schedule(
+        createMockMatches([
+          { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1' },
+          { team1: 'Team C', team2: 'Team A', timeSlot: 9, field: 'Field 2' }, // Team A: 4.5h at venue => 0.5h over
+        ])
+      );
+
+      const highOverageSchedule = new Schedule(
+        createMockMatches([
+          { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1' },
+          { team1: 'Team C', team2: 'Team A', timeSlot: 13, field: 'Field 2' }, // Team A: 6.5h at venue => 2.5h over
+        ])
+      );
+
+      const lowScore = lowOverageSchedule.evaluate([lowOverageRule]);
+      const highScore = highOverageSchedule.evaluate([highOverageRule]);
+
+      expect(lowScore).toBe(2);
+      expect(highScore).toBe(10);
+      expect(highScore).toBeGreaterThan(lowScore);
+      expect(lowOverageSchedule.violations[0].painUnit).toBe('per_player');
+    });
+  });
+
   describe('Complex Scenarios', () => {
     it('should handle schedules with multiple types of violations', () => {
       const rules = [new AvoidBackToBackGames(3), new AvoidFirstAndLastGame(2), new AvoidReffingBeforePlaying(4)];

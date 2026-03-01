@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { CustomRuleDefinitionData, RuleCategory, RuleConfigurationData } from '../lib/localStorage';
+import { CustomRuleDefinitionData, RuleCategory, RuleConfigurationData, RulePainUnit } from '../lib/localStorage';
 import {
   RULES_REGISTRY,
   RuleDefinition,
@@ -26,6 +26,8 @@ interface BuiltinRule {
   priority: number;
   type: 'builtin';
   category: RuleCategory;
+  painUnit: RulePainUnit;
+  priorityInputDescription: string;
   class: any;
   description: string;
   parameters?: { [key: string]: any };
@@ -39,6 +41,8 @@ interface CustomRuleConfig {
   priority: number;
   type: 'custom';
   category: RuleCategory;
+  painUnit: RulePainUnit;
+  priorityInputDescription: string;
   code: string;
   customDefinition: CustomRuleDefinitionData;
   description?: string;
@@ -51,6 +55,8 @@ interface DuplicatedRule {
   priority: number;
   type: 'duplicated';
   category: RuleCategory;
+  painUnit: RulePainUnit;
+  priorityInputDescription: string;
   class: any;
   description: string;
   parameters?: { [key: string]: any };
@@ -60,6 +66,19 @@ interface DuplicatedRule {
 
 type Rule = BuiltinRule | CustomRuleConfig | DuplicatedRule;
 
+const getDefaultPriorityDescription = (painUnit: RulePainUnit): string =>
+  painUnit === 'per_team'
+    ? 'Pain points per team (shared across players)'
+    : 'Pain points per player';
+
+const resolvePriorityDescription = (
+  painUnit: RulePainUnit,
+  explicitDescription?: string
+): string =>
+  explicitDescription && explicitDescription.trim().length > 0
+    ? explicitDescription
+    : getDefaultPriorityDescription(painUnit);
+
 // Convert RuleDefinition to BuiltinRule format
 const convertRuleDefinitionToBuiltinRule = (
   ruleDef: RuleDefinition,
@@ -67,6 +86,11 @@ const convertRuleDefinitionToBuiltinRule = (
   priority: number,
   configuredParams?: any
 ): BuiltinRule => ({
+  painUnit: ruleDef.painUnit || 'per_player',
+  priorityInputDescription: resolvePriorityDescription(
+    ruleDef.painUnit || 'per_player',
+    ruleDef.priorityInputDescription
+  ),
   id: ruleDef.id,
   name: ruleDef.name,
   enabled,
@@ -94,6 +118,9 @@ const getDefaultRules = (): Rule[] =>
 
 const convertConfigurationsToRules = (configurations: RuleConfigurationData[]): Rule[] =>
   configurations.map(config => {
+    const painUnit = config.painUnit || 'per_player';
+    const priorityInputDescription = resolvePriorityDescription(painUnit, config.priorityInputDescription);
+
     const baseRule = {
       id: config.id,
       name: config.name,
@@ -101,12 +128,19 @@ const convertConfigurationsToRules = (configurations: RuleConfigurationData[]): 
       priority: config.priority,
       type: config.type,
       category: config.category,
+      painUnit,
+      priorityInputDescription,
     };
 
     if (config.type === 'builtin') {
       const ruleDef = getRuleDefinition(config.id);
       return {
         ...baseRule,
+        painUnit: ruleDef?.painUnit || baseRule.painUnit,
+        priorityInputDescription: resolvePriorityDescription(
+          ruleDef?.painUnit || baseRule.painUnit,
+          config.priorityInputDescription || ruleDef?.priorityInputDescription
+        ),
         class: ruleDef?.ruleClass,
         description: ruleDef?.description || '',
         parameters: ruleDef?.parameters,
@@ -118,6 +152,11 @@ const convertConfigurationsToRules = (configurations: RuleConfigurationData[]): 
       const ruleDef = getRuleDefinition(config.baseRuleId!);
       return {
         ...baseRule,
+        painUnit: ruleDef?.painUnit || baseRule.painUnit,
+        priorityInputDescription: resolvePriorityDescription(
+          ruleDef?.painUnit || baseRule.painUnit,
+          config.priorityInputDescription || ruleDef?.priorityInputDescription
+        ),
         class: ruleDef?.ruleClass,
         description: ruleDef?.description || '',
         parameters: ruleDef?.parameters,
@@ -149,6 +188,8 @@ const convertRulesToConfigurations = (rules: Rule[]): RuleConfigurationData[] =>
         priority: rule.priority,
         type: rule.type,
         category: rule.category,
+        painUnit: rule.painUnit,
+        priorityInputDescription: rule.priorityInputDescription,
         customDefinition,
         code: customDefinition.source,
       };
@@ -161,6 +202,8 @@ const convertRulesToConfigurations = (rules: Rule[]): RuleConfigurationData[] =>
       priority: rule.priority,
       type: rule.type,
       category: rule.category,
+      painUnit: rule.painUnit,
+      priorityInputDescription: rule.priorityInputDescription,
       configuredParams: rule.configuredParams,
       baseRuleId: rule.type === 'duplicated' ? rule.baseRuleId : undefined,
     };
@@ -186,15 +229,21 @@ export default function RuleConfiguration({
   const [customRuleCode, setCustomRuleCode] = useState<string>(DEFAULT_CUSTOM_RULE_TEMPLATE);
   const [customRulePriority, setCustomRulePriority] = useState(2);
   const [customRuleCategory, setCustomRuleCategory] = useState<RuleCategory>('team');
+  const [customRulePainUnit, setCustomRulePainUnit] = useState<RulePainUnit>('per_player');
   const [error, setError] = useState<string | null>(null);
   const [editingRule, setEditingRule] = useState<(CustomRuleConfig & { originalId: string }) | null>(null);
   const [showExamples, setShowExamples] = useState(false);
 
-  const resetCustomRuleForm = (priority: number = 2, category: RuleCategory = 'team') => {
+  const resetCustomRuleForm = (
+    priority: number = 2,
+    category: RuleCategory = 'team',
+    painUnit: RulePainUnit = 'per_player'
+  ) => {
     setCustomRuleName('');
     setCustomRuleCode(DEFAULT_CUSTOM_RULE_TEMPLATE);
     setCustomRulePriority(priority);
     setCustomRuleCategory(category);
+    setCustomRulePainUnit(painUnit);
   };
 
   const updateRules = (nextRules: Rule[]) => {
@@ -265,6 +314,8 @@ export default function RuleConfiguration({
         priority: customRulePriority,
         type: 'custom',
         category: customRuleCategory,
+        painUnit: customRulePainUnit,
+        priorityInputDescription: resolvePriorityDescription(customRulePainUnit),
         code: validation.definition.source,
         customDefinition: validation.definition,
       } satisfies CustomRuleConfig;
@@ -272,7 +323,7 @@ export default function RuleConfiguration({
       updateRules([...rules, newRule]);
 
       // Reset form
-      resetCustomRuleForm(customRuleCategory === 'team' ? 3 : 2, customRuleCategory);
+      resetCustomRuleForm(customRuleCategory === 'team' ? 3 : 2, customRuleCategory, customRulePainUnit);
     } catch (err) {
       setError(`Error adding custom rule: ${(err as Error).message}`);
     }
@@ -290,6 +341,8 @@ export default function RuleConfiguration({
       priority: rule.priority,
       type: 'duplicated',
       category: rule.category,
+      painUnit: rule.painUnit,
+      priorityInputDescription: rule.priorityInputDescription,
       class: rule.class,
       description: rule.description,
       parameters: rule.parameters,
@@ -309,6 +362,7 @@ export default function RuleConfiguration({
     setCustomRuleCode(rule.code);
     setCustomRulePriority(rule.priority);
     setCustomRuleCategory(rule.category);
+    setCustomRulePainUnit(rule.painUnit);
   };
 
   const handleSaveEdit = () => {
@@ -337,6 +391,8 @@ export default function RuleConfiguration({
                 customDefinition: validation.definition,
                 priority: customRulePriority,
                 category: customRuleCategory,
+                painUnit: customRulePainUnit,
+                priorityInputDescription: resolvePriorityDescription(customRulePainUnit),
               }
             : rule
         )
@@ -475,7 +531,10 @@ export default function RuleConfiguration({
               </div>
 
               <div className="flex items-center gap-2 ml-4">
-                <label className="text-sm text-gray-600">Priority:</label>
+                <div className="text-right">
+                  <label className="block text-sm text-gray-600 leading-tight">Priority</label>
+                  <span className="block text-[11px] text-gray-500 leading-tight">{rule.priorityInputDescription}</span>
+                </div>
                 <input
                   type="number"
                   value={rule.priority}
@@ -586,7 +645,7 @@ export default function RuleConfiguration({
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="grid grid-cols-3 gap-3 mb-3">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
             <select
@@ -603,7 +662,21 @@ export default function RuleConfiguration({
             </select>
           </div>
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Priority Unit</label>
+            <select
+              value={customRulePainUnit}
+              onChange={e => setCustomRulePainUnit(e.target.value as RulePainUnit)}
+              className="w-full p-2 border rounded"
+            >
+              <option value="per_player">Per player</option>
+              <option value="per_team">Per team</option>
+            </select>
+          </div>
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Priority (1-10)</label>
+            <div className="text-[11px] text-gray-500 mb-1">
+              {resolvePriorityDescription(customRulePainUnit)}
+            </div>
             <input
               type="number"
               value={customRulePriority}
