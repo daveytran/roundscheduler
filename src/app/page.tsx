@@ -6,7 +6,10 @@ import ImportSchedule from '../components/ImportSchedule';
 import ScheduleFormatOptions from '../components/ScheduleFormatOptions';
 import RuleConfiguration from '../components/RuleConfiguration';
 import ScheduleOptimizer from '../components/ScheduleOptimizer';
-import ScheduleVisualization from '../components/ScheduleVisualization';
+import ScheduleVisualization, {
+  DEFAULT_SCHEDULE_VISUALIZATION_SETTINGS,
+  ScheduleVisualizationSettings,
+} from '../components/ScheduleVisualization';
 import { Player } from '../models/Player';
 import { TeamsMap } from '../models/Team';
 import { Match } from '../models/Match';
@@ -134,6 +137,9 @@ export default function Home() {
   const [dataLoadedFromStorage, setDataLoadedFromStorage] = useState<boolean>(initialState.dataLoadedFromStorage);
   const [lastUpdated, setLastUpdated] = useState<string>(initialState.lastUpdated);
   const [duplicateRulesDetected, setDuplicateRulesDetected] = useState<boolean>(initialState.duplicateRulesDetected);
+  const [scheduleVisualizationSettings, setScheduleVisualizationSettings] = useState<ScheduleVisualizationSettings>(
+    DEFAULT_SCHEDULE_VISUALIZATION_SETTINGS
+  );
 
   const schedulingRules = useMemo(
     () =>
@@ -212,6 +218,11 @@ export default function Home() {
   const handleOptimizerSettingsChange = useCallback((settings: OptimizerSettings) => {
     setOptimizerSettings(settings);
     saveToLocalStorage({ optimizerSettings: settings });
+  }, []);
+
+  // Keep live and final visualization controls in sync
+  const handleVisualizationSettingsChange = useCallback((settings: ScheduleVisualizationSettings) => {
+    setScheduleVisualizationSettings(settings);
   }, []);
 
   // Define a type for the schedule-like object that might be passed in
@@ -516,6 +527,8 @@ export default function Home() {
                 initialSettings={optimizerSettings}
                 onSettingsChange={handleOptimizerSettingsChange}
                 onOptimizationComplete={handleOptimizationComplete}
+                visualizationSettings={scheduleVisualizationSettings}
+                onVisualizationSettingsChange={handleVisualizationSettingsChange}
               />
 
               {/* Results Section - show when schedule exists */}
@@ -586,7 +599,11 @@ export default function Home() {
                   </div>
 
                   {/* Final Schedule Visualization */}
-                  <ScheduleVisualization schedule={schedule} />
+                  <ScheduleVisualization
+                    schedule={schedule}
+                    visualizationSettings={scheduleVisualizationSettings}
+                    onVisualizationSettingsChange={handleVisualizationSettingsChange}
+                  />
                 </div>
               )}
             </div>

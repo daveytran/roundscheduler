@@ -9,6 +9,8 @@ interface ScheduleVisualizationProps {
   liveViolationBaseline?: number | null
   liveBestViolationCount?: number | null
   liveLatestViolationChange?: number
+  visualizationSettings?: ScheduleVisualizationSettings
+  onVisualizationSettingsChange?: (settings: ScheduleVisualizationSettings) => void
 }
 
 interface GroupedMatches {
@@ -96,6 +98,28 @@ interface EntityGroupAnalytics {
 }
 
 type ViolationEntityGroup = 'team' | 'player' | 'other'
+
+export interface ScheduleVisualizationSettings {
+  viewMode: 'by_time' | 'by_field' | 'violations_only'
+  violationsDisplayMode: 'grouped' | 'entity_split'
+  showSpecificEntities: boolean
+  levelFilter: 'all' | RuleViolation['level']
+  searchQuery: string
+  selectedDivision: string
+  showSpecialActivities: boolean
+  showNotes: boolean
+}
+
+export const DEFAULT_SCHEDULE_VISUALIZATION_SETTINGS: ScheduleVisualizationSettings = {
+  viewMode: 'by_time',
+  violationsDisplayMode: 'entity_split',
+  showSpecificEntities: false,
+  levelFilter: 'all',
+  searchQuery: '',
+  selectedDivision: 'all',
+  showSpecialActivities: true,
+  showNotes: false,
+}
 
 const ENTITY_LABEL_MAP: Record<ViolationEntityGroup, string> = {
   team: 'Team Violations',
@@ -297,14 +321,21 @@ function buildEntityAnalytics(entityGroup: ViolationEntityGroup, violations: Rul
       const maxOverage = impactEntry.metrics.length > 0 ? Math.max(...impactEntry.metrics.map(metric => metric.overage)) : 0
 
       if (impactEntry.metrics.length > 0) {
-        const dominantMetric =
-          impactEntry.metrics.sort((left, right) => right.overage - left.overage)[0]
+        const dominantMetric = impactEntry.metrics.sort((left, right) => right.overage - left.overage)[0]
         const maxObserved = Math.max(...impactEntry.metrics.map(metric => metric.observed))
+        const minObserved = Math.min(...impactEntry.metrics.map(metric => metric.observed))
+        const rangeText =
+          maxObserved === minObserved
+            ? `${formatMetricNumber(maxObserved)}`
+            : `${formatMetricNumber(minObserved)}-${formatMetricNumber(maxObserved)}`
 
         if (dominantMetric.kind === 'venue_time') {
           return {
             rule,
-            summary: `${affectedEntities} ${entityLabelPlural} at venue up to ${formatMetricNumber(maxObserved)} hrs (${formatMetricNumber(maxOverage)} hrs over max)`,
+            summary:
+              affectedEntities > 1
+                ? `${affectedEntities} ${entityLabelPlural} affected; venue time range ${rangeText} hrs (up to ${formatMetricNumber(maxOverage)} hrs over max)`
+                : `${affectedEntities} ${entityLabelPlural} at venue for ${formatMetricNumber(maxObserved)} hrs (${formatMetricNumber(maxOverage)} hrs over max)`,
             affectedEntities,
             maxOverage,
           }
@@ -312,7 +343,10 @@ function buildEntityAnalytics(entityGroup: ViolationEntityGroup, violations: Rul
 
         return {
           rule,
-          summary: `${affectedEntities} ${entityLabelPlural} up to ${formatMetricNumber(maxObserved)} games (${formatMetricNumber(maxOverage)} over max)`,
+          summary:
+            affectedEntities > 1
+              ? `${affectedEntities} ${entityLabelPlural} affected; game count range ${rangeText} (up to ${formatMetricNumber(maxOverage)} over max)`
+              : `${affectedEntities} ${entityLabelPlural} scheduled for ${formatMetricNumber(maxObserved)} games (${formatMetricNumber(maxOverage)} over max)`,
           affectedEntities,
           maxOverage,
         }
@@ -390,17 +424,86 @@ export default function ScheduleVisualization({
   liveViolationBaseline = null,
   liveBestViolationCount = null,
   liveLatestViolationChange = 0,
+  visualizationSettings,
+  onVisualizationSettingsChange,
 }: ScheduleVisualizationProps) {
   const violations: RuleViolation[] = schedule?.violations || []
-  const [viewMode, setViewMode] = useState<'by_time' | 'by_field' | 'violations_only'>('by_time')
-  const [violationsDisplayMode, setViolationsDisplayMode] = useState<'grouped' | 'entity_split'>('entity_split')
-  const [showSpecificEntities, setShowSpecificEntities] = useState<boolean>(false)
-  const [levelFilter, setLevelFilter] = useState<'all' | RuleViolation['level']>('all')
-  const [searchQuery, setSearchQuery] = useState<string>('')
-  const [selectedDivision, setSelectedDivision] = useState<string>('all')
-  const [showSpecialActivities, setShowSpecialActivities] = useState<boolean>(true)
-  const [showNotes, setShowNotes] = useState<boolean>(false)
+  const [viewModeState, setViewModeState] = useState<'by_time' | 'by_field' | 'violations_only'>(
+    DEFAULT_SCHEDULE_VISUALIZATION_SETTINGS.viewMode
+  )
+  const [violationsDisplayModeState, setViolationsDisplayModeState] = useState<'grouped' | 'entity_split'>(
+    DEFAULT_SCHEDULE_VISUALIZATION_SETTINGS.violationsDisplayMode
+  )
+  const [showSpecificEntitiesState, setShowSpecificEntitiesState] = useState<boolean>(
+    DEFAULT_SCHEDULE_VISUALIZATION_SETTINGS.showSpecificEntities
+  )
+  const [levelFilterState, setLevelFilterState] = useState<'all' | RuleViolation['level']>(
+    DEFAULT_SCHEDULE_VISUALIZATION_SETTINGS.levelFilter
+  )
+  const [searchQueryState, setSearchQueryState] = useState<string>(DEFAULT_SCHEDULE_VISUALIZATION_SETTINGS.searchQuery)
+  const [selectedDivisionState, setSelectedDivisionState] = useState<string>(
+    DEFAULT_SCHEDULE_VISUALIZATION_SETTINGS.selectedDivision
+  )
+  const [showSpecialActivitiesState, setShowSpecialActivitiesState] = useState<boolean>(
+    DEFAULT_SCHEDULE_VISUALIZATION_SETTINGS.showSpecialActivities
+  )
+  const [showNotesState, setShowNotesState] = useState<boolean>(DEFAULT_SCHEDULE_VISUALIZATION_SETTINGS.showNotes)
   const [isViolationsExpanded, setIsViolationsExpanded] = useState<boolean>(false)
+  const currentSettings: ScheduleVisualizationSettings = {
+    viewMode: visualizationSettings?.viewMode ?? viewModeState,
+    violationsDisplayMode: visualizationSettings?.violationsDisplayMode ?? violationsDisplayModeState,
+    showSpecificEntities: visualizationSettings?.showSpecificEntities ?? showSpecificEntitiesState,
+    levelFilter: visualizationSettings?.levelFilter ?? levelFilterState,
+    searchQuery: visualizationSettings?.searchQuery ?? searchQueryState,
+    selectedDivision: visualizationSettings?.selectedDivision ?? selectedDivisionState,
+    showSpecialActivities: visualizationSettings?.showSpecialActivities ?? showSpecialActivitiesState,
+    showNotes: visualizationSettings?.showNotes ?? showNotesState,
+  }
+  const {
+    viewMode,
+    violationsDisplayMode,
+    showSpecificEntities,
+    levelFilter,
+    searchQuery,
+    selectedDivision,
+    showSpecialActivities,
+    showNotes,
+  } = currentSettings
+
+  const updateVisualizationSettings = (partialSettings: Partial<ScheduleVisualizationSettings>) => {
+    const nextSettings = { ...currentSettings, ...partialSettings }
+
+    if (onVisualizationSettingsChange) {
+      onVisualizationSettingsChange(nextSettings)
+      return
+    }
+
+    if (partialSettings.viewMode !== undefined) {
+      setViewModeState(partialSettings.viewMode)
+    }
+    if (partialSettings.violationsDisplayMode !== undefined) {
+      setViolationsDisplayModeState(partialSettings.violationsDisplayMode)
+    }
+    if (partialSettings.showSpecificEntities !== undefined) {
+      setShowSpecificEntitiesState(partialSettings.showSpecificEntities)
+    }
+    if (partialSettings.levelFilter !== undefined) {
+      setLevelFilterState(partialSettings.levelFilter)
+    }
+    if (partialSettings.searchQuery !== undefined) {
+      setSearchQueryState(partialSettings.searchQuery)
+    }
+    if (partialSettings.selectedDivision !== undefined) {
+      setSelectedDivisionState(partialSettings.selectedDivision)
+    }
+    if (partialSettings.showSpecialActivities !== undefined) {
+      setShowSpecialActivitiesState(partialSettings.showSpecialActivities)
+    }
+    if (partialSettings.showNotes !== undefined) {
+      setShowNotesState(partialSettings.showNotes)
+    }
+  }
+
   const isViolationsOnlyMode = viewMode === 'violations_only'
   const visibleViolations = showNotes ? violations : violations.filter((violation: RuleViolation) => violation.level !== 'note')
   const levelDisplayOrder: RuleViolation['level'][] = showNotes
@@ -670,19 +773,19 @@ export default function ScheduleVisualization({
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex border rounded overflow-hidden">
             <button
-              onClick={() => setViewMode('by_time')}
+              onClick={() => updateVisualizationSettings({ viewMode: 'by_time' })}
               className={`px-3 py-1 ${viewMode === 'by_time' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
             >
               By Time
             </button>
             <button
-              onClick={() => setViewMode('by_field')}
+              onClick={() => updateVisualizationSettings({ viewMode: 'by_field' })}
               className={`px-3 py-1 ${viewMode === 'by_field' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
             >
               By Field
             </button>
             <button
-              onClick={() => setViewMode('violations_only')}
+              onClick={() => updateVisualizationSettings({ viewMode: 'violations_only' })}
               className={`px-3 py-1 ${viewMode === 'violations_only' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
             >
               Violations Only
@@ -693,7 +796,7 @@ export default function ScheduleVisualization({
             <>
               <select
                 value={selectedDivision}
-                onChange={e => setSelectedDivision(e.target.value)}
+                onChange={e => updateVisualizationSettings({ selectedDivision: e.target.value })}
                 className="p-2 border rounded"
               >
                 {divisions.map((div: string) => (
@@ -707,7 +810,7 @@ export default function ScheduleVisualization({
                 <input
                   type="checkbox"
                   checked={showSpecialActivities}
-                  onChange={e => setShowSpecialActivities(e.target.checked)}
+                  onChange={e => updateVisualizationSettings({ showSpecialActivities: e.target.checked })}
                   className="rounded"
                 />
                 Show Setup/Pack Down
@@ -719,7 +822,7 @@ export default function ScheduleVisualization({
             <input
               type="checkbox"
               checked={showNotes}
-              onChange={e => setShowNotes(e.target.checked)}
+              onChange={e => updateVisualizationSettings({ showNotes: e.target.checked })}
               className="rounded"
             />
             Show Notes
@@ -928,14 +1031,14 @@ export default function ScheduleVisualization({
               <input
                 type="text"
                 value={searchQuery}
-                onChange={event => setSearchQuery(event.target.value)}
+                onChange={event => updateVisualizationSettings({ searchQuery: event.target.value })}
                 placeholder="Search rule or description"
                 className="flex-1 min-w-[220px] p-2 border rounded text-sm"
               />
 
               <select
                 value={levelFilter}
-                onChange={event => setLevelFilter(event.target.value as 'all' | RuleViolation['level'])}
+                onChange={event => updateVisualizationSettings({ levelFilter: event.target.value as 'all' | RuleViolation['level'] })}
                 className="p-2 border rounded text-sm"
               >
                 <option value="all">All levels</option>
@@ -948,13 +1051,13 @@ export default function ScheduleVisualization({
 
               <div className="flex border rounded overflow-hidden text-sm">
                 <button
-                  onClick={() => setViolationsDisplayMode('grouped')}
+                  onClick={() => updateVisualizationSettings({ violationsDisplayMode: 'grouped' })}
                   className={`px-3 py-2 ${violationsDisplayMode === 'grouped' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-700'}`}
                 >
                   Grouped
                 </button>
                 <button
-                  onClick={() => setViolationsDisplayMode('entity_split')}
+                  onClick={() => updateVisualizationSettings({ violationsDisplayMode: 'entity_split' })}
                   className={`px-3 py-2 ${violationsDisplayMode === 'entity_split' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-700'}`}
                 >
                   Team/Player Split
@@ -966,7 +1069,7 @@ export default function ScheduleVisualization({
                   <input
                     type="checkbox"
                     checked={showSpecificEntities}
-                    onChange={event => setShowSpecificEntities(event.target.checked)}
+                    onChange={event => updateVisualizationSettings({ showSpecificEntities: event.target.checked })}
                     className="rounded"
                   />
                   Show specific teams/players

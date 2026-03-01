@@ -1,6 +1,9 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import ScheduleVisualization from '../../components/ScheduleVisualization';
+import ScheduleVisualization, {
+  DEFAULT_SCHEDULE_VISUALIZATION_SETTINGS,
+  ScheduleVisualizationSettings,
+} from '../../components/ScheduleVisualization';
 import { Schedule } from '../../models/Schedule';
 import { createMockMatch } from '../../lib/testUtils';
 
@@ -140,7 +143,7 @@ describe('ScheduleVisualization', () => {
 
     expect(screen.getByText('By How Much')).toBeTruthy();
     expect(screen.getByText(/Limit venue time:/i)).toBeTruthy();
-    expect(screen.getByText(/3 teams at venue up to 7 hrs \(2 hrs over max\)/i)).toBeTruthy();
+    expect(screen.getByText(/3 teams affected; venue time range 5.5-7 hrs \(up to 2 hrs over max\)/i)).toBeTruthy();
   });
 
   it('shows by-how-much details for specific teams and players when toggled on', () => {
@@ -168,5 +171,54 @@ describe('ScheduleVisualization', () => {
 
     expect(screen.getByText(/7 hrs at venue \(2 hrs over max\)/i)).toBeTruthy();
     expect(screen.getByText(/6 hrs at venue \(2 hrs over max\)/i)).toBeTruthy();
+  });
+
+  it('keeps view mode and toggles in sync when settings are shared', () => {
+    const match = createMockMatch('Team Sync A', 'Team Sync B', 6, 'Field 6', 'mixed', 'Team Sync C');
+    const schedule = new Schedule([match]);
+    schedule.score = 2;
+    schedule.violations = [
+      {
+        rule: 'Sync Warning',
+        description: 'Team Sync A has warning',
+        level: 'warning',
+        matches: [match],
+      },
+      {
+        rule: 'Sync Note',
+        description: 'Team Sync A has note',
+        level: 'note',
+        matches: [match],
+      },
+    ];
+
+    function SyncHost() {
+      const [sharedSettings, setSharedSettings] = React.useState<ScheduleVisualizationSettings>(
+        DEFAULT_SCHEDULE_VISUALIZATION_SETTINGS
+      );
+
+      return (
+        <div>
+          <ScheduleVisualization
+            schedule={schedule}
+            visualizationSettings={sharedSettings}
+            onVisualizationSettingsChange={settings => setSharedSettings(settings)}
+          />
+          <ScheduleVisualization
+            schedule={schedule}
+            visualizationSettings={sharedSettings}
+            onVisualizationSettingsChange={settings => setSharedSettings(settings)}
+          />
+        </div>
+      );
+    }
+
+    render(<SyncHost />);
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Violations Only' })[0]);
+    expect(screen.getAllByText('Violation List (1)').length).toBe(2);
+
+    fireEvent.click(screen.getAllByRole('checkbox', { name: 'Show Notes' })[0]);
+    expect(screen.getAllByText('Violation List (2)').length).toBe(2);
   });
 });

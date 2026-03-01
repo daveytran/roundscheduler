@@ -4,7 +4,7 @@ import { Match } from '../models/Match';
 import { ScheduleRule } from '../models/ScheduleRule';
 import { OptimizerSettings } from '../lib/localStorage';
 import { OPTIMIZATION_STRATEGIES } from '../models/OptimizationStrategy';
-import ScheduleVisualization from './ScheduleVisualization';
+import ScheduleVisualization, { ScheduleVisualizationSettings } from './ScheduleVisualization';
 
 function normalizeStrategyId(strategyId?: string): string {
   if (strategyId && OPTIMIZATION_STRATEGIES.some(strategy => strategy.id === strategyId)) {
@@ -38,6 +38,8 @@ interface ScheduleOptimizerProps {
   initialSettings?: OptimizerSettings;
   onSettingsChange?: (settings: OptimizerSettings) => void;
   onOptimizationComplete?: (schedule: Schedule) => void;
+  visualizationSettings?: ScheduleVisualizationSettings;
+  onVisualizationSettingsChange?: (settings: ScheduleVisualizationSettings) => void;
 }
 
 export default function ScheduleOptimizer({
@@ -46,6 +48,8 @@ export default function ScheduleOptimizer({
   initialSettings,
   onSettingsChange,
   onOptimizationComplete,
+  visualizationSettings,
+  onVisualizationSettingsChange,
 }: ScheduleOptimizerProps) {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -548,6 +552,8 @@ export default function ScheduleOptimizer({
             liveViolationBaseline={liveBaselineViolationCount}
             liveBestViolationCount={liveBestViolationCount}
             liveLatestViolationChange={liveLatestViolationChange}
+            visualizationSettings={visualizationSettings}
+            onVisualizationSettingsChange={onVisualizationSettingsChange}
           />
         </div>
       )}
