@@ -68,7 +68,9 @@ export default function ScheduleFormatOptions({ matches, onFormatApplied }: Sche
               timeSlot++,
               match.field,
               match.division,
-              match.refereeTeam
+              match.refereeTeam,
+              match.activityType,
+              match.locked
             );
             return newMatch;
           });

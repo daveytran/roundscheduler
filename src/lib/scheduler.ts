@@ -89,7 +89,9 @@ export function createDivisionBlocks(matches: Match[], divisionOrder: string): M
         currentTimeSlot,
         match.field,
         match.division,
-        match.refereeTeam
+        match.refereeTeam,
+        match.activityType,
+        match.locked
       );
       newMatches.push(newMatch);
       currentTimeSlot++;

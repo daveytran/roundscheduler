@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, use, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import ImportPlayers from '../components/ImportPlayers';
 import ImportSchedule from '../components/ImportSchedule';
 import ScheduleFormatOptions from '../components/ScheduleFormatOptions';
@@ -62,68 +62,61 @@ export default function Home() {
 
   // Load data from localStorage on component mount
   useEffect(() => {
-    if (typeof window !== 'undefined' && hasStoredData()) {
-      const savedData = loadFromLocalStorage();
-      if (savedData.lastUpdated) {
-        setPlayers(savedData.players || []);
-        setTeams(savedData.teams ?? null);
-        setMatches(savedData.matches || []);
-        setFormattedMatches(savedData.formattedMatches || []);
+    if (typeof window === 'undefined' || !hasStoredData()) return;
 
-        // Load rule configurations and optimizer settings, merging with new defaults
-        if (savedData.ruleConfigurations) {
-          // Check for duplicates before merging
-          const ruleIds = savedData.ruleConfigurations.map(r => r.id);
-          const uniqueIds = new Set(ruleIds);
-          const hasDuplicates = ruleIds.length !== uniqueIds.size;
-          
-          if (hasDuplicates) {
-            console.warn('🚨 Duplicate rules detected in localStorage!');
-            setDuplicateRulesDetected(true);
-          }
-          
-          // Merge existing configurations with new default rules
-          const mergedConfigurations = mergeRuleConfigurations(savedData.ruleConfigurations);
-          setRuleConfigurations(mergedConfigurations);
-        } else {
-          // Use default configurations if none exist
-          setRuleConfigurations(defaultRuleConfigurations);
-        }
+    const savedData = loadFromLocalStorage();
+    if (!savedData.lastUpdated) return;
 
-        if (savedData.optimizerSettings) {
-          setOptimizerSettings(savedData.optimizerSettings);
-        }
+    setPlayers(savedData.players || []);
+    setTeams(savedData.teams ?? null);
+    setMatches(savedData.matches || []);
+    setFormattedMatches(savedData.formattedMatches || []);
 
-        // Create proper Schedule instance to ensure methods are available
-        if (savedData.schedule || savedData.formattedMatches) {
-          // If we have a schedule with matches, create a proper Schedule instance
-          const matchesToUse = savedData.schedule?.matches || savedData.formattedMatches || [];
-          const newSchedule = new Schedule(matchesToUse);
-          
-          // Copy over important properties from the saved schedule if available
-          if (savedData.schedule) {
-            newSchedule.score = savedData.schedule.score || 0;
-            newSchedule.originalScore = savedData.schedule.originalScore;
-            
-            // If rules are available, re-evaluate violations with current rules
-            // This will initialize the violations array if it wasn't properly saved
-            const ruleInstances = ruleConfigurations
-              ? ruleConfigurations.map(createRuleFromConfiguration).filter(rule => rule !== null)
-              : defaultRuleConfigurations.map(createRuleFromConfiguration).filter(rule => rule !== null);
-              
-            newSchedule.evaluate(ruleInstances);
-          }
-          
-          setSchedule(newSchedule);
-        } else {
-          setSchedule(null);
-        }
-        
-        setLastUpdated(savedData.lastUpdated);
-        setDataLoadedFromStorage(true);
+    // Load rule configurations and optimizer settings, merging with new defaults
+    let effectiveRuleConfigurations = defaultRuleConfigurations;
+    if (savedData.ruleConfigurations) {
+      // Check for duplicates before merging
+      const ruleIds = savedData.ruleConfigurations.map(r => r.id);
+      const uniqueIds = new Set(ruleIds);
+      const hasDuplicates = ruleIds.length !== uniqueIds.size;
+
+      if (hasDuplicates) {
+        console.warn('🚨 Duplicate rules detected in localStorage!');
+        setDuplicateRulesDetected(true);
       }
+
+      effectiveRuleConfigurations = mergeRuleConfigurations(savedData.ruleConfigurations);
     }
-  }, [ruleConfigurations]);
+    setRuleConfigurations(effectiveRuleConfigurations);
+
+    if (savedData.optimizerSettings) {
+      setOptimizerSettings(savedData.optimizerSettings);
+    }
+
+    // Create proper Schedule instance to ensure methods are available
+    if (savedData.schedule || savedData.formattedMatches) {
+      const matchesToUse = savedData.schedule?.matches || savedData.formattedMatches || [];
+      const newSchedule = new Schedule(matchesToUse);
+
+      if (savedData.schedule) {
+        newSchedule.score = savedData.schedule.score || 0;
+        newSchedule.originalScore = savedData.schedule.originalScore;
+
+        // Re-evaluate with the effective rule configuration to refresh violations/scores.
+        const ruleInstances = effectiveRuleConfigurations
+          .map(createRuleFromConfiguration)
+          .filter(rule => rule !== null);
+        newSchedule.evaluate(ruleInstances);
+      }
+
+      setSchedule(newSchedule);
+    } else {
+      setSchedule(null);
+    }
+
+    setLastUpdated(savedData.lastUpdated);
+    setDataLoadedFromStorage(true);
+  }, []);
 
   const handlePlayersImport = (importedPlayers: Player[], importedTeams: TeamsMap) => {
     setPlayers(importedPlayers);

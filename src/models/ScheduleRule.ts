@@ -398,25 +398,54 @@ export class AvoidReffingBeforePlaying extends ScheduleRule {
   }
 
   evaluate(schedule: Schedule, violations: RuleViolation[]) {
-    const matches = [...schedule.matches].sort((a, b) => a.timeSlot - b.timeSlot)
+    const matches = [...schedule.matches]
+      .filter(match => !match.isSpecialActivity())
+      .sort((a, b) => a.timeSlot - b.timeSlot)
 
-    for (let i = 0; i < matches.length - 1; i++) {
-      const currMatch = matches[i]
-      const nextMatch = matches[i + 1]
+    const matchesBySlot = new Map<number, Match[]>()
+    matches.forEach(match => {
+      if (!matchesBySlot.has(match.timeSlot)) {
+        matchesBySlot.set(match.timeSlot, [])
+      }
+      matchesBySlot.get(match.timeSlot)!.push(match)
+    })
 
-      // Skip if there's no referee team assigned to current match
-      if (!currMatch.refereeTeam) continue
+    const sortedSlots = Array.from(matchesBySlot.keys()).sort((a, b) => a - b)
 
-      // Check if the referee team plays in the next match
-      if (currMatch.refereeTeam.name === nextMatch.team1.name || currMatch.refereeTeam.name === nextMatch.team2.name) {
+    sortedSlots.forEach(slot => {
+      const currentSlotMatches = matchesBySlot.get(slot) || []
+      const nextSlotMatches = matchesBySlot.get(slot + 1) || []
+      if (nextSlotMatches.length === 0) return
+
+      const teamsPlayingNextSlot = new Set<string>()
+      nextSlotMatches.forEach(match => {
+        teamsPlayingNextSlot.add(match.team1.name)
+        teamsPlayingNextSlot.add(match.team2.name)
+      })
+
+      const refereeTeamsThisSlot = new Set<string>()
+      currentSlotMatches.forEach(match => {
+        if (match.refereeTeam) {
+          refereeTeamsThisSlot.add(match.refereeTeam.name)
+        }
+      })
+
+      refereeTeamsThisSlot.forEach(refTeamName => {
+        if (!teamsPlayingNextSlot.has(refTeamName)) return
+
+        const relatedCurrentMatches = currentSlotMatches.filter(match => match.refereeTeam?.name === refTeamName)
+        const relatedNextMatches = nextSlotMatches.filter(
+          match => match.team1.name === refTeamName || match.team2.name === refTeamName
+        )
+
         violations.push({
           rule: this.name,
-          description: `Team ${currMatch.refereeTeam.name} referees in slot ${currMatch.timeSlot} and plays in slot ${nextMatch.timeSlot}`,
-          matches: [currMatch, nextMatch],
+          description: `Team ${refTeamName} referees in slot ${slot} and plays in slot ${slot + 1}`,
+          matches: [...relatedCurrentMatches, ...relatedNextMatches],
           level: 'note',
         })
-      }
-    }
+      })
+    })
 
     return violations
   }
@@ -435,29 +464,40 @@ export class AvoidPlayingAfterSetup extends ScheduleRule {
 
   evaluate(schedule: Schedule, violations: RuleViolation[]) {
     const matches = [...schedule.matches].sort((a, b) => a.timeSlot - b.timeSlot)
+    const matchesBySlot = new Map<number, Match[]>()
+    matches.forEach(match => {
+      if (!matchesBySlot.has(match.timeSlot)) {
+        matchesBySlot.set(match.timeSlot, [])
+      }
+      matchesBySlot.get(match.timeSlot)!.push(match)
+    })
 
-    for (let i = 0; i < matches.length - 1; i++) {
-      const currMatch = matches[i]
-      const nextMatch = matches[i + 1]
+    matches.forEach(currMatch => {
+      if (currMatch.activityType !== 'SETUP') return
 
-      // Check if current match is a SETUP activity and next match is consecutive
-      if (currMatch.activityType === 'SETUP' && nextMatch.timeSlot === currMatch.timeSlot + 1) {
-        // Get all teams involved in setup - handle both Match instances and plain objects
-        let setupTeams
-        if (typeof currMatch.getAllInvolvedTeams === 'function') {
-          setupTeams = currMatch.getAllInvolvedTeams()
-        } else {
-          // Fallback for plain objects: manually extract teams
-          setupTeams = [currMatch.team1, currMatch.team2]
-          if (currMatch.refereeTeam) {
-            setupTeams.push(currMatch.refereeTeam)
-          }
-          // Remove duplicates
-          setupTeams = setupTeams.filter((team, index, self) => self.findIndex(t => t.name === team.name) === index)
+      const nextSlotMatches = (matchesBySlot.get(currMatch.timeSlot + 1) || []).filter(
+        match => match.activityType === 'REGULAR'
+      )
+      if (nextSlotMatches.length === 0) return
+
+      // Get all teams involved in setup - handle both Match instances and plain objects
+      let setupTeams
+      if (typeof currMatch.getAllInvolvedTeams === 'function') {
+        setupTeams = currMatch.getAllInvolvedTeams()
+      } else {
+        // Fallback for plain objects: manually extract teams
+        setupTeams = [currMatch.team1, currMatch.team2]
+        if (currMatch.refereeTeam) {
+          setupTeams.push(currMatch.refereeTeam)
         }
+        // Remove duplicates
+        setupTeams = setupTeams.filter((team, index, self) => self.findIndex(t => t.name === team.name) === index)
+      }
 
-        // Check if any setup team is playing in the next match
-        for (const setupTeam of setupTeams) {
+      for (const setupTeam of setupTeams) {
+        if (!setupTeam || setupTeam.name === 'ACTIVITY_PLACEHOLDER') continue
+
+        nextSlotMatches.forEach(nextMatch => {
           if (nextMatch.team1.name === setupTeam.name || nextMatch.team2.name === setupTeam.name) {
             violations.push({
               rule: this.name,
@@ -466,9 +506,9 @@ export class AvoidPlayingAfterSetup extends ScheduleRule {
               level: 'warning',
             })
           }
-        }
+        })
       }
-    }
+    })
 
     return violations
   }
@@ -684,7 +724,11 @@ export class CustomRule extends ScheduleRule {
   }
 
   evaluate(schedule: Schedule, violations: RuleViolation[]) {
-    return this.evaluateFunction(schedule)
+    const customViolations = this.evaluateFunction(schedule)
+    if (Array.isArray(customViolations) && customViolations.length > 0) {
+      violations.push(...customViolations)
+    }
+    return violations
   }
 }
 
@@ -1083,5 +1127,4 @@ export class PreventClubRefereeConflict extends ScheduleRule {
     return teamName; // If only one word, return the whole name
   }
 }
-
 

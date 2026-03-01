@@ -4,10 +4,13 @@ import {
   AvoidBackToBackGames,
   AvoidFirstAndLastGame,
   AvoidReffingBeforePlaying,
+  AvoidPlayingAfterSetup,
+  CustomRule,
   LimitVenueTime,
   EnsureFairFieldDistribution,
 } from '../../models/ScheduleRule';
-import { testScenarios, createMockMatches } from '../../lib/testUtils';
+import { Match } from '../../models/Match';
+import { testScenarios, createMockMatches, createMockTeam } from '../../lib/testUtils';
 
 describe('ScheduleRule Tests', () => {
   describe('AvoidBackToBackGames', () => {
@@ -138,6 +141,86 @@ describe('ScheduleRule Tests', () => {
       rule.evaluate(schedule, violations);
 
       expect(violations).toHaveLength(0);
+    });
+
+    it('should not flag when there is a time-slot gap', () => {
+      const rule = new AvoidReffingBeforePlaying(4);
+      const matches = createMockMatches([
+        { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1', referee: 'Team C' },
+        { team1: 'Team C', team2: 'Team D', timeSlot: 3, field: 'Field 1' }, // Gap: slot 2 missing
+      ]);
+      const schedule = new Schedule(matches);
+      const violations: RuleViolation[] = [];
+
+      rule.evaluate(schedule, violations);
+
+      expect(violations).toHaveLength(0);
+    });
+
+    it('should detect when team plays in any match in the next slot', () => {
+      const rule = new AvoidReffingBeforePlaying(4);
+      const matches = createMockMatches([
+        { team1: 'Team A', team2: 'Team B', timeSlot: 1, field: 'Field 1', referee: 'Team C' },
+        { team1: 'Team D', team2: 'Team E', timeSlot: 2, field: 'Field 1' }, // Unrelated first match in slot 2
+        { team1: 'Team C', team2: 'Team F', timeSlot: 2, field: 'Field 2' }, // Team C also plays in slot 2
+      ]);
+      const schedule = new Schedule(matches);
+      const violations: RuleViolation[] = [];
+
+      rule.evaluate(schedule, violations);
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].description).toContain('Team C');
+      expect(violations[0].description).toContain('slot 1');
+      expect(violations[0].description).toContain('slot 2');
+    });
+  });
+
+  describe('AvoidPlayingAfterSetup', () => {
+    it('should detect setup conflicts across all matches in the next slot', () => {
+      const rule = new AvoidPlayingAfterSetup(10);
+      const teamA = createMockTeam('Team A');
+      const teamB = createMockTeam('Team B');
+      const teamC = createMockTeam('Team C');
+      const teamD = createMockTeam('Team D');
+      const teamE = createMockTeam('Team E');
+
+      const setupMatch = new Match(teamA, teamB, 1, 'Field 1', 'mixed', null, 'SETUP');
+      const unrelatedNextMatch = new Match(teamC, teamD, 2, 'Field 1', 'mixed');
+      const teamAPlaysNextMatch = new Match(teamA, teamE, 2, 'Field 2', 'mixed');
+
+      const schedule = new Schedule([setupMatch, unrelatedNextMatch, teamAPlaysNextMatch]);
+      const violations: RuleViolation[] = [];
+
+      rule.evaluate(schedule, violations);
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].description).toContain('Team A');
+      expect(violations[0].description).toContain('slot 1');
+      expect(violations[0].description).toContain('slot 2');
+    });
+  });
+
+  describe('CustomRule', () => {
+    it('should append custom violations to the provided accumulator and affect score', () => {
+      const customRule = new CustomRule(
+        'Custom violation',
+        () => [
+          {
+            rule: 'Custom violation',
+            description: 'Custom rule triggered',
+            level: 'warning',
+          },
+        ],
+        4
+      );
+
+      const schedule = new Schedule(testScenarios.validSchedule());
+      const score = schedule.evaluate([customRule]);
+
+      expect(schedule.violations).toHaveLength(1);
+      expect(schedule.violations[0].description).toBe('Custom rule triggered');
+      expect(score).toBe(4);
     });
   });
 

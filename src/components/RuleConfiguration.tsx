@@ -1,13 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { CustomRule as CustomRuleClass } from '../models/ScheduleRule';
-import { ScheduleHelpers } from '../lib/schedule-helpers';
 import { RuleConfigurationData } from '../lib/localStorage';
 import {
   RULES_REGISTRY,
   RuleDefinition,
   getRuleDefinition,
-  getTeamRules,
-  getPlayerRules,
   createRuleFromConfiguration,
 } from '../lib/rules-registry';
 import CodeEditor from './CodeEditor';
@@ -90,12 +86,88 @@ const getDefaultRules = (): Rule[] =>
     )
   );
 
+const convertConfigurationsToRules = (configurations: RuleConfigurationData[]): Rule[] =>
+  configurations.map(config => {
+    const baseRule = {
+      id: config.id,
+      name: config.name,
+      enabled: config.enabled,
+      priority: config.priority,
+      type: config.type,
+      category: config.category,
+    };
+
+    if (config.type === 'builtin') {
+      const ruleDef = getRuleDefinition(config.id);
+      return {
+        ...baseRule,
+        class: ruleDef?.ruleClass,
+        description: ruleDef?.description || '',
+        parameters: ruleDef?.parameters,
+        configuredParams: config.configuredParams,
+      } as BuiltinRule;
+    }
+
+    if (config.type === 'duplicated') {
+      const ruleDef = getRuleDefinition(config.baseRuleId!);
+      return {
+        ...baseRule,
+        class: ruleDef?.ruleClass,
+        description: ruleDef?.description || '',
+        parameters: ruleDef?.parameters,
+        configuredParams: config.configuredParams,
+        baseRuleId: config.baseRuleId!,
+      } as DuplicatedRule;
+    }
+
+    return {
+      ...baseRule,
+      code:
+        config.code ||
+        'function evaluate(schedule) {\n  const violations = [];\n  // Your custom rule logic here\n  return violations;\n}',
+    } as CustomRuleConfig;
+  });
+
+const convertRulesToConfigurations = (rules: Rule[]): RuleConfigurationData[] =>
+  rules.map(rule => ({
+    id: rule.id,
+    name: rule.name,
+    enabled: rule.enabled,
+    priority: rule.priority,
+    type: rule.type,
+    category: rule.category,
+    configuredParams: rule.type === 'builtin' || rule.type === 'duplicated' ? rule.configuredParams : undefined,
+    code: rule.type === 'custom' ? rule.code : undefined,
+    baseRuleId: rule.type === 'duplicated' ? rule.baseRuleId : undefined,
+  }));
+
+const getConfigurationsSignature = (configs?: RuleConfigurationData[]): string => {
+  if (!configs) return '[]';
+  return JSON.stringify(
+    configs.map(config => ({
+      id: config.id,
+      name: config.name,
+      enabled: config.enabled,
+      priority: config.priority,
+      type: config.type,
+      category: config.category,
+      configuredParams: config.configuredParams || null,
+      code: config.code || null,
+      baseRuleId: config.baseRuleId || null,
+    }))
+  );
+};
+
 export default function RuleConfiguration({
   initialConfigurations,
   onConfigurationsChange,
   onRulesChange,
 }: RuleConfigurationProps) {
-  const [rules, setRules] = useState<Rule[]>([]);
+  const [rules, setRules] = useState<Rule[]>(
+    initialConfigurations && initialConfigurations.length > 0
+      ? convertConfigurationsToRules(initialConfigurations)
+      : getDefaultRules()
+  );
   const [customRuleName, setCustomRuleName] = useState('');
   const [customRuleCode, setCustomRuleCode] = useState<string>(
     'function evaluate(schedule) {\n  const violations = [];\n  // Your custom rule logic here\n  return violations;\n}'
@@ -105,95 +177,38 @@ export default function RuleConfiguration({
   const [error, setError] = useState<string | null>(null);
   const [editingRule, setEditingRule] = useState<(CustomRuleConfig & { originalId: string }) | null>(null);
   const [showExamples, setShowExamples] = useState(false);
-  const [isInitialized, setIsInitialized] = useState(false);
 
-  // Load initial configurations or use defaults (only once)
+  // Keep local rule state in sync with parent-provided configurations.
   useEffect(() => {
-    if (!isInitialized) {
-      if (initialConfigurations && initialConfigurations.length > 0) {
-        // Convert RuleConfigurationData to Rule format
-        const convertedRules = initialConfigurations.map(config => {
-          const baseRule = {
-            id: config.id,
-            name: config.name,
-            enabled: config.enabled,
-            priority: config.priority,
-            type: config.type,
-            category: config.category,
-          };
+    const nextRules =
+      initialConfigurations && initialConfigurations.length > 0
+        ? convertConfigurationsToRules(initialConfigurations)
+        : getDefaultRules();
 
-          if (config.type === 'builtin') {
-            const ruleDef = getRuleDefinition(config.id);
-            return {
-              ...baseRule,
-              class: ruleDef?.ruleClass,
-              description: ruleDef?.description || '',
-              parameters: ruleDef?.parameters,
-              configuredParams: config.configuredParams,
-            } as BuiltinRule;
-          } else if (config.type === 'duplicated') {
-            const ruleDef = getRuleDefinition(config.baseRuleId!);
-            return {
-              ...baseRule,
-              class: ruleDef?.ruleClass,
-              description: ruleDef?.description || '',
-              parameters: ruleDef?.parameters,
-              configuredParams: config.configuredParams,
-              baseRuleId: config.baseRuleId!,
-            } as DuplicatedRule;
-          } else {
-            return {
-              ...baseRule,
-              code:
-                config.code ||
-                'function evaluate(schedule) {\n  const violations = [];\n  // Your custom rule logic here\n  return violations;\n}',
-            } as CustomRuleConfig;
-          }
-        });
-
-        setRules(convertedRules);
-      } else {
-        // Use default rules
-        setRules(getDefaultRules());
-      }
-      setIsInitialized(true);
-    }
-  }, [initialConfigurations, isInitialized]); // Prevent circular updates by only initializing once
+    setRules(prevRules => {
+      const prevSignature = getConfigurationsSignature(convertRulesToConfigurations(prevRules));
+      const nextSignature = getConfigurationsSignature(convertRulesToConfigurations(nextRules));
+      return prevSignature === nextSignature ? prevRules : nextRules;
+    });
+  }, [initialConfigurations]);
 
   // Convert Rule[] to RuleConfigurationData[] and notify parent when rules change
   useEffect(() => {
-    const configurations: RuleConfigurationData[] = rules.map(rule => ({
-      id: rule.id,
-      name: rule.name,
-      enabled: rule.enabled,
-      priority: rule.priority,
-      type: rule.type,
-      category: rule.category,
-      configuredParams: rule.type === 'builtin' || rule.type === 'duplicated' ? rule.configuredParams : undefined,
-      code: rule.type === 'custom' ? rule.code : undefined,
-      baseRuleId: rule.type === 'duplicated' ? rule.baseRuleId : undefined,
-    }));
+    const configurations = convertRulesToConfigurations(rules);
 
     if (onConfigurationsChange) {
-      onConfigurationsChange(configurations);
+      const localSignature = getConfigurationsSignature(configurations);
+      const propSignature = getConfigurationsSignature(initialConfigurations);
+      if (localSignature !== propSignature) {
+        onConfigurationsChange(configurations);
+      }
     }
-  }, [rules, onConfigurationsChange]);
+  }, [rules, onConfigurationsChange, initialConfigurations]);
 
   // Create rule instances and notify parent when configurations change
   useEffect(() => {
     if (onRulesChange) {
-      // Convert rules to RuleConfigurationData format and use centralized creation
-      const configurations: RuleConfigurationData[] = rules.map(rule => ({
-        id: rule.id,
-        name: rule.name,
-        enabled: rule.enabled,
-        priority: rule.priority,
-        type: rule.type,
-        category: rule.category,
-        configuredParams: rule.type === 'builtin' || rule.type === 'duplicated' ? rule.configuredParams : undefined,
-        code: rule.type === 'custom' ? rule.code : undefined,
-        baseRuleId: rule.type === 'duplicated' ? rule.baseRuleId : undefined,
-      }));
+      const configurations = convertRulesToConfigurations(rules);
 
       const enabledRules = configurations
         .filter(config => config.enabled)
