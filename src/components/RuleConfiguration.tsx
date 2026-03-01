@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { RuleConfigurationData } from '../lib/localStorage';
+import { CustomRuleDefinitionData, RuleCategory, RuleConfigurationData } from '../lib/localStorage';
 import {
   RULES_REGISTRY,
   RuleDefinition,
   getRuleDefinition,
   createRuleFromConfiguration,
 } from '../lib/rules-registry';
+import {
+  createCustomRuleDefinition,
+  DEFAULT_CUSTOM_RULE_TEMPLATE,
+  validateCustomRuleSource,
+} from '../lib/custom-rule-engine';
 import CodeEditor from './CodeEditor';
 
 interface RuleConfigurationProps {
@@ -20,7 +25,7 @@ interface BuiltinRule {
   enabled: boolean;
   priority: number;
   type: 'builtin';
-  category: 'team' | 'player' | 'both';
+  category: RuleCategory;
   class: any;
   description: string;
   parameters?: { [key: string]: any };
@@ -33,8 +38,9 @@ interface CustomRuleConfig {
   enabled: boolean;
   priority: number;
   type: 'custom';
-  category: 'team' | 'player' | 'both';
+  category: RuleCategory;
   code: string;
+  customDefinition: CustomRuleDefinitionData;
   description?: string;
 }
 
@@ -44,7 +50,7 @@ interface DuplicatedRule {
   enabled: boolean;
   priority: number;
   type: 'duplicated';
-  category: 'team' | 'player' | 'both';
+  category: RuleCategory;
   class: any;
   description: string;
   parameters?: { [key: string]: any };
@@ -120,26 +126,45 @@ const convertConfigurationsToRules = (configurations: RuleConfigurationData[]): 
       } as DuplicatedRule;
     }
 
+    const customDefinition = createCustomRuleDefinition(
+      config.customDefinition?.source ?? config.code ?? DEFAULT_CUSTOM_RULE_TEMPLATE,
+      config.customDefinition
+    );
+
     return {
       ...baseRule,
-      code:
-        config.code ||
-        'function evaluate(schedule) {\n  const violations = [];\n  // Your custom rule logic here\n  return violations;\n}',
+      code: customDefinition.source,
+      customDefinition,
     } as CustomRuleConfig;
   });
 
 const convertRulesToConfigurations = (rules: Rule[]): RuleConfigurationData[] =>
-  rules.map(rule => ({
-    id: rule.id,
-    name: rule.name,
-    enabled: rule.enabled,
-    priority: rule.priority,
-    type: rule.type,
-    category: rule.category,
-    configuredParams: rule.type === 'builtin' || rule.type === 'duplicated' ? rule.configuredParams : undefined,
-    code: rule.type === 'custom' ? rule.code : undefined,
-    baseRuleId: rule.type === 'duplicated' ? rule.baseRuleId : undefined,
-  }));
+  rules.map(rule => {
+    if (rule.type === 'custom') {
+      const customDefinition = createCustomRuleDefinition(rule.code, rule.customDefinition);
+      return {
+        id: rule.id,
+        name: rule.name,
+        enabled: rule.enabled,
+        priority: rule.priority,
+        type: rule.type,
+        category: rule.category,
+        customDefinition,
+        code: customDefinition.source,
+      };
+    }
+
+    return {
+      id: rule.id,
+      name: rule.name,
+      enabled: rule.enabled,
+      priority: rule.priority,
+      type: rule.type,
+      category: rule.category,
+      configuredParams: rule.configuredParams,
+      baseRuleId: rule.type === 'duplicated' ? rule.baseRuleId : undefined,
+    };
+  });
 
 const getConfigurationsSignature = (configs?: RuleConfigurationData[]): string => {
   if (!configs) return '[]';
@@ -152,6 +177,7 @@ const getConfigurationsSignature = (configs?: RuleConfigurationData[]): string =
       type: config.type,
       category: config.category,
       configuredParams: config.configuredParams || null,
+      customDefinition: config.customDefinition || null,
       code: config.code || null,
       baseRuleId: config.baseRuleId || null,
     }))
@@ -169,14 +195,19 @@ export default function RuleConfiguration({
       : getDefaultRules()
   );
   const [customRuleName, setCustomRuleName] = useState('');
-  const [customRuleCode, setCustomRuleCode] = useState<string>(
-    'function evaluate(schedule) {\n  const violations = [];\n  // Your custom rule logic here\n  return violations;\n}'
-  );
+  const [customRuleCode, setCustomRuleCode] = useState<string>(DEFAULT_CUSTOM_RULE_TEMPLATE);
   const [customRulePriority, setCustomRulePriority] = useState(2);
-  const [customRuleCategory, setCustomRuleCategory] = useState<'team' | 'player' | 'both'>('team');
+  const [customRuleCategory, setCustomRuleCategory] = useState<RuleCategory>('team');
   const [error, setError] = useState<string | null>(null);
   const [editingRule, setEditingRule] = useState<(CustomRuleConfig & { originalId: string }) | null>(null);
   const [showExamples, setShowExamples] = useState(false);
+
+  const resetCustomRuleForm = (priority: number = 2, category: RuleCategory = 'team') => {
+    setCustomRuleName('');
+    setCustomRuleCode(DEFAULT_CUSTOM_RULE_TEMPLATE);
+    setCustomRulePriority(priority);
+    setCustomRuleCategory(category);
+  };
 
   // Keep local rule state in sync with parent-provided configurations.
   useEffect(() => {
@@ -256,13 +287,9 @@ export default function RuleConfiguration({
         return;
       }
 
-      // Test if the code is valid JavaScript
-      try {
-        eval(`function evaluate(schedule) {
-          ${customRuleCode}
-          }`);
-      } catch (err) {
-        setError(`Invalid JavaScript: ${(err as Error).message}`);
+      const validation = validateCustomRuleSource(customRuleCode);
+      if (!validation.valid) {
+        setError(`Invalid custom rule: ${validation.error}`);
         return;
       }
 
@@ -274,17 +301,14 @@ export default function RuleConfiguration({
         priority: customRulePriority,
         type: 'custom',
         category: customRuleCategory,
-        code: customRuleCode,
+        code: validation.definition.source,
+        customDefinition: validation.definition,
       } satisfies CustomRuleConfig;
 
       setRules([...rules, newRule]);
 
       // Reset form
-      setCustomRuleName('');
-      setCustomRuleCode(
-        'function evaluate(schedule) {\n  const violations = [];\n  // Your custom rule logic here\n  return violations;\n}'
-      );
-      setCustomRulePriority(customRuleCategory === 'team' ? 3 : 2);
+      resetCustomRuleForm(customRuleCategory === 'team' ? 3 : 2, customRuleCategory);
     } catch (err) {
       setError(`Error adding custom rule: ${(err as Error).message}`);
     }
@@ -332,13 +356,9 @@ export default function RuleConfiguration({
         return;
       }
 
-      // Test if the code is valid JavaScript
-      try {
-        eval(`function evaluate(schedule) {
-          ${customRuleCode}
-          }`);
-      } catch (err) {
-        setError(`Invalid JavaScript: ${(err as Error).message}`);
+      const validation = validateCustomRuleSource(customRuleCode, editingRule?.customDefinition);
+      if (!validation.valid) {
+        setError(`Invalid custom rule: ${validation.error}`);
         return;
       }
 
@@ -349,7 +369,8 @@ export default function RuleConfiguration({
             ? {
                 ...rule,
                 name: customRuleName,
-                code: customRuleCode ?? '',
+                code: validation.definition.source,
+                customDefinition: validation.definition,
                 priority: customRulePriority,
                 category: customRuleCategory,
               }
@@ -359,12 +380,7 @@ export default function RuleConfiguration({
 
       // Reset form and editing state
       setEditingRule(null);
-      setCustomRuleName('');
-      setCustomRuleCode(
-        'function evaluate(schedule) {\n  const violations = [];\n  // Your custom rule logic here\n  return violations;\n}'
-      );
-      setCustomRulePriority(2);
-      setCustomRuleCategory('team');
+      resetCustomRuleForm();
     } catch (err) {
       setError(`Error updating rule: ${(err as Error).message}`);
     }
@@ -372,19 +388,14 @@ export default function RuleConfiguration({
 
   const handleCancelEdit = () => {
     setEditingRule(null);
-    setCustomRuleName('');
-    setCustomRuleCode(
-      'function evaluate(schedule) {\n  const violations = [];\n  // Your custom rule logic here\n  return violations;\n}'
-    );
-    setCustomRulePriority(2);
-    setCustomRuleCategory('team');
+    resetCustomRuleForm();
     setError(null);
   };
 
   // Sort all rules by priority (highest first)
   const sortedRules = [...rules].sort((a, b) => b.priority - a.priority);
 
-  const getCategoryColor = (category: 'team' | 'player' | 'both') => {
+  const getCategoryColor = (category: RuleCategory) => {
     switch (category) {
       case 'team':
         return 'bg-blue-100 text-blue-700';
@@ -617,7 +628,7 @@ export default function RuleConfiguration({
             <select
               value={customRuleCategory}
               onChange={e => {
-                setCustomRuleCategory(e.target.value as 'team' | 'player' | 'both');
+                setCustomRuleCategory(e.target.value as RuleCategory);
                 setCustomRulePriority(e.target.value === 'team' ? 4 : e.target.value === 'both' ? 3 : 2);
               }}
               className="w-full p-2 border rounded"

@@ -14,15 +14,28 @@ export interface StoredData {
   lastUpdated?: string;
 }
 
+export type RuleCategory = 'team' | 'player' | 'both';
+
+export type CustomRuleEngine = 'javascript';
+export type CustomRuleSourceType = 'evaluate-function' | 'body';
+
+export interface CustomRuleDefinitionData {
+  engine: CustomRuleEngine;
+  version: 1;
+  sourceType: CustomRuleSourceType;
+  source: string;
+}
+
 export interface RuleConfigurationData {
   id: string;
   name: string;
   enabled: boolean;
   priority: number;
   type: 'builtin' | 'custom' | 'duplicated';
-  category: 'team' | 'player' | 'both';
+  category: RuleCategory;
   configuredParams?: { [key: string]: any };
-  code?: string; // for custom rules
+  code?: string; // legacy custom rule source for backward compatibility
+  customDefinition?: CustomRuleDefinitionData; // typed custom rule source
   baseRuleId?: string; // for duplicated rules - references the original built-in rule
 }
 

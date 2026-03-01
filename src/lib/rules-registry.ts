@@ -15,8 +15,11 @@ import {
   DetectMixedDivisionsInTimeSlot,
   PreventClubRefereeConflict,
 } from '../models/ScheduleRule';
-import { ScheduleHelpers } from './schedule-helpers';
 import { RuleConfigurationData } from './localStorage';
+import {
+  compileCustomRuleDefinition,
+  getCustomRuleDefinitionFromConfig,
+} from './custom-rule-engine';
 
 export interface RuleParameter {
   name: string;
@@ -351,19 +354,16 @@ export function createRuleFromConfiguration(config: RuleConfigurationData): Sche
       console.error(`Error creating rule ${config.name}: ${(err as Error).message}`);
       return null;
     }
-  } else if (config.type === 'custom' && config.code) {
-    try {
-      // Convert string function to actual function using eval
-      const cleanCode = config.code.replace(/^function\s+evaluate\s*\([^)]*\)\s*{/, '').replace(/}$/, '');
-      const evaluateFunc = new Function(
-        'schedule',
-        'ScheduleHelpers',
-        `const violations = [];\n${cleanCode}\nreturn violations;`
-      ) as (schedule: any, scheduleHelpers: any) => any[];
+  } else if (config.type === 'custom') {
+    const customDefinition = getCustomRuleDefinitionFromConfig(config);
+    if (!customDefinition) {
+      console.warn(`Invalid custom rule source for: ${config.name}`);
+      return null;
+    }
 
-      // Wrap the function to provide ScheduleHelpers
-      const wrappedFunc = (schedule: any) => evaluateFunc(schedule, ScheduleHelpers);
-      return new CustomRuleClass(config.name, wrappedFunc, config.priority);
+    try {
+      const evaluator = compileCustomRuleDefinition(customDefinition, config.name);
+      return new CustomRuleClass(config.name, evaluator, config.priority);
     } catch (err) {
       console.error(`Error creating custom rule ${config.name}: ${(err as Error).message}`);
       return null;
@@ -392,53 +392,66 @@ const RULE_MIGRATION_MAP: { [oldId: string]: string } = {
 function migrateRuleConfigurations(configs: RuleConfigurationData[]): RuleConfigurationData[] {
   const validRuleIds = new Set(RULES_REGISTRY.map(rule => rule.id));
   const migratedConfigs: RuleConfigurationData[] = [];
-  const processedIds = new Set<string>();
 
   console.log('🔄 Starting rule migration...');
 
   for (const config of configs) {
-    // Skip if rule no longer exists and has no migration
-    if (!validRuleIds.has(config.id) && !RULE_MIGRATION_MAP[config.id]) {
+    if (config.type === 'custom') {
+      const customDefinition = getCustomRuleDefinitionFromConfig(config);
+      if (!customDefinition) {
+        console.log(`❌ Removing invalid custom rule: ${config.id}`);
+        continue;
+      }
+
+      migratedConfigs.push({
+        ...config,
+        code: customDefinition.source,
+        customDefinition,
+      });
+      continue;
+    }
+
+    if (config.type === 'duplicated') {
+      const baseRuleId = config.baseRuleId;
+      if (!baseRuleId || !validRuleIds.has(baseRuleId)) {
+        console.log(`❌ Removing duplicated rule with invalid base rule: ${config.id}`);
+        continue;
+      }
+
+      const baseRule = getRuleDefinition(baseRuleId);
+      migratedConfigs.push({
+        ...config,
+        name: config.name || `${baseRule?.name ?? 'Rule'} (Copy)`,
+        category: baseRule?.category || config.category,
+      });
+      continue;
+    }
+
+    const migratedId = RULE_MIGRATION_MAP[config.id] || config.id;
+
+    // Skip built-in rules that no longer exist and have no migration
+    if (!validRuleIds.has(migratedId)) {
       console.log(`❌ Removing obsolete rule: ${config.id}`);
       continue;
     }
 
-    // Migrate if needed
-    if (RULE_MIGRATION_MAP[config.id]) {
-      const newId = RULE_MIGRATION_MAP[config.id];
-      
-      // Skip if we've already processed this new ID
-      if (processedIds.has(newId)) {
-        console.log(`⏭️ Skipping duplicate migration: ${config.id} -> ${newId}`);
-        continue;
-      }
-
-      const newRule = getRuleDefinition(newId);
-      if (newRule) {
-        console.log(`🔄 Migrating rule: ${config.id} -> ${newId} (${config.category} -> ${newRule.category})`);
-        migratedConfigs.push({
-          ...config,
-          id: newId,
-          name: newRule.name,
-          category: newRule.category,
-          // Merge parameters from old config if compatible
-          configuredParams: config.configuredParams
-        });
-        processedIds.add(newId);
-      }
-    } else if (validRuleIds.has(config.id)) {
-      // Keep existing valid rules but update their category to match registry
-      const ruleDefinition = getRuleDefinition(config.id);
-      if (ruleDefinition && ruleDefinition.category !== config.category) {
-        console.log(`🔄 Updating category for ${config.id}: ${config.category} -> ${ruleDefinition.category}`);
-      }
-      migratedConfigs.push({
-        ...config,
-        category: ruleDefinition?.category || config.category,
-        name: ruleDefinition?.name || config.name
-      });
-      processedIds.add(config.id);
+    const ruleDefinition = getRuleDefinition(migratedId);
+    if (!ruleDefinition) {
+      console.log(`❌ Removing unknown rule after migration: ${config.id}`);
+      continue;
     }
+
+    if (migratedId !== config.id) {
+      console.log(`🔄 Migrating rule: ${config.id} -> ${migratedId}`);
+    }
+
+    migratedConfigs.push({
+      ...config,
+      id: migratedId,
+      type: 'builtin',
+      category: ruleDefinition.category,
+      name: ruleDefinition.name,
+    });
   }
 
   console.log(`✅ Migration complete. Processed ${migratedConfigs.length} rules.`);

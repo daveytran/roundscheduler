@@ -1,13 +1,12 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
-import { getScheduleHelpersAsString } from '../lib/schedule-helpers';
 
 interface CodeEditorProps {
   value: string | undefined;
   onChange: (value: string) => void;
   height?: string;
-  language?: string;
+  language?: 'typescript' | 'javascript';
   placeholder?: string;
 }
 
@@ -73,8 +72,8 @@ declare interface RuleViolation {
   description: string;
   /** Array of matches involved in the violation (optional) */
   matches?: Match[];
-  /** Severity level of the violation (optional) */
-  severity?: 'low' | 'medium' | 'high';
+  /** Severity level of the violation (optional, defaults to warning) */
+  level?: 'note' | 'warning' | 'alert' | 'critical';
 }
 
 /**
@@ -110,7 +109,7 @@ declare interface ViolationBuilder {
   rule: string;
   description: string;
   matches?: Match[];
-  severity?: 'low' | 'medium' | 'high';
+  level?: 'note' | 'warning' | 'alert' | 'critical';
 }
 
 /**
@@ -130,6 +129,20 @@ declare namespace ScheduleHelpers {
    * @returns Object with field names as keys and match arrays as values
    */
   function groupMatchesByField(matches: Match[]): Record<string, Match[]>;
+
+  /**
+   * Groups matches by player name
+   * @param matches Array of matches to group
+   * @returns Object with player names as keys and match arrays as values
+   */
+  function groupMatchesByPlayer(matches: Match[]): Record<string, Match[]>;
+
+  /**
+   * Gets all players participating in a specific match
+   * @param match The match to inspect
+   * @returns Array of players from both teams
+   */
+  function getPlayersInMatch(match: Match): Player[];
   
   /**
    * Gets all matches for a specific team
@@ -138,6 +151,14 @@ declare namespace ScheduleHelpers {
    * @returns Array of matches involving this team
    */
   function getTeamMatches(schedule: Schedule, teamName: string): Match[];
+
+  /**
+   * Gets all matches for a specific player
+   * @param schedule The schedule to search
+   * @param playerName Name of the player
+   * @returns Array of matches involving this player
+   */
+  function getPlayerMatches(schedule: Schedule, playerName: string): Match[];
   
   /**
    * Checks if two matches are consecutive (timeSlot difference of 1)
@@ -152,14 +173,14 @@ declare namespace ScheduleHelpers {
    * @param rule Rule name
    * @param description Description of the violation
    * @param matches Matches involved (optional)
-   * @param severity Severity level (optional)
+   * @param level Severity level (optional)
    * @returns Formatted violation object
    */
   function createViolation(
     rule: string, 
     description: string, 
     matches?: Match[], 
-    severity?: 'low' | 'medium' | 'high'
+    level?: 'note' | 'warning' | 'alert' | 'critical'
   ): RuleViolation;
   
   /**
@@ -170,36 +191,25 @@ declare namespace ScheduleHelpers {
   function groupMatchesByDivision(matches: Match[]): Record<string, Match[]>;
   
   /**
-   * Gets matches in a specific time slot
-   * @param schedule The schedule to search
-   * @param timeSlot The time slot to filter by
-   * @returns Array of matches in the specified time slot
-   */
-  function getMatchesInTimeSlot(schedule: Schedule, timeSlot: number): Match[];
-  
-  /**
-   * Finds teams that have matches in consecutive time slots
-   * @param schedule The schedule to analyze
-   * @returns Array of objects with team name and consecutive matches
-   */
-  function findConsecutiveMatches(schedule: Schedule): Array<{teamName: string, matches: Match[]}>;
-  
-  /**
    * Calculates basic statistics about the schedule
    * @param schedule The schedule to analyze
    * @returns Object with various schedule statistics
    */
   function getScheduleStats(schedule: Schedule): {
     totalMatches: number;
-    divisions: number;
-    fields: number;
-    timeSlots: number;
-    minTimeSlot: number;
-    maxTimeSlot: number;
-    fieldUsage: Record<string, number>;
-    divisionCounts: Record<string, number>;
+    totalPlayers: number;
+    matchesPerTimeSlot: Record<number, number>;
+    matchesPerField: Record<string, number>;
+    matchesPerDivision: Record<string, number>;
+    playersPerTeam: Record<string, number>;
   };
 }
+
+/**
+ * Globals available in the custom rule execution context
+ */
+declare const schedule: Schedule;
+declare const violations: RuleViolation[];
 
 /**
  * Main function that evaluates a schedule for rule violations
@@ -220,16 +230,22 @@ const defaultCode = `// 🎯 Try these features:
 
 const violations = [];
 
-// Example 1: Check for back-to-back games using helper function
-const consecutiveMatches = ScheduleHelpers.findConsecutiveMatches(schedule);
+// Example 1: Check for back-to-back games using helper functions
+const teamMatches = ScheduleHelpers.groupMatchesByTeam(schedule.matches);
 
-consecutiveMatches.forEach(({ teamName, matches }) => {
-  violations.push({
-    rule: "Back-to-back games",
-    description: \`Team \${teamName} plays consecutive games at slots \${matches[0].timeSlot} and \${matches[1].timeSlot}\`,
-    matches: matches,
-    severity: "medium"
-  });
+Object.entries(teamMatches).forEach(([teamName, matches]) => {
+  const sorted = [...matches].sort((a, b) => a.timeSlot - b.timeSlot);
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (ScheduleHelpers.areConsecutive(sorted[i], sorted[i + 1])) {
+      violations.push({
+        rule: "Back-to-back games",
+        description: \`Team \${teamName} plays consecutive games at slots \${sorted[i].timeSlot} and \${sorted[i + 1].timeSlot}\`,
+        matches: [sorted[i], sorted[i + 1]],
+        level: "warning"
+      });
+    }
+  }
 });
 
 // Example 2: Field usage balance using helper function
@@ -242,7 +258,7 @@ Object.entries(fieldMatches).forEach(([field, matches]) => {
       rule: "Field overuse",
       description: \`Field \${field} has \${matches.length} games (avg: \${avgGamesPerField.toFixed(1)})\`,
       matches: matches,
-      severity: "low"
+      level: "note"
     });
   }
 });
@@ -252,13 +268,14 @@ const stats = ScheduleHelpers.getScheduleStats(schedule);
 console.log("Schedule statistics:", stats);
 
 // Check if any division has significantly more games
-Object.entries(stats.divisionCounts).forEach(([division, count]) => {
-  const avgPerDivision = stats.totalMatches / stats.divisions;
+const divisionCount = Object.keys(stats.matchesPerDivision).length || 1;
+Object.entries(stats.matchesPerDivision).forEach(([division, count]) => {
+  const avgPerDivision = stats.totalMatches / divisionCount;
   if (count > avgPerDivision * 1.3) {
     violations.push({
       rule: "Division imbalance",
       description: \`Division \${division} has \${count} games, significantly more than average (\${avgPerDivision.toFixed(1)})\`,
-      severity: "low"
+      level: "note"
     });
   }
 });
@@ -273,59 +290,71 @@ export default function CodeEditor({
   placeholder,
 }: CodeEditorProps) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const monacoConfiguredRef = useRef(false);
+  const monacoDisposablesRef = useRef<monaco.IDisposable[]>([]);
+
+  useEffect(() => {
+    return () => {
+      monacoDisposablesRef.current.forEach(disposable => disposable.dispose());
+      monacoDisposablesRef.current = [];
+    };
+  }, []);
 
   function handleEditorDidMount(editor: monaco.editor.IStandaloneCodeEditor, monaco: typeof import('monaco-editor')) {
     editorRef.current = editor;
 
-    // Add TypeScript definitions for autocomplete
-    monaco.languages.typescript.typescriptDefaults.addExtraLib(scheduleTypeDefinitions, 'schedule-types.d.ts');
+    if (!monacoConfiguredRef.current) {
+      const languageDefaults = [
+        monaco.languages.typescript.typescriptDefaults,
+        monaco.languages.typescript.javascriptDefaults,
+      ];
 
-    // Add schedule variable and helper functions to global scope for the editor
-    monaco.languages.typescript.typescriptDefaults.addExtraLib(
-      `
-// Global schedule variable available in the rule evaluation context
-declare const schedule: Schedule;
+      languageDefaults.forEach(defaults => {
+        defaults.setCompilerOptions({
+          target: monaco.languages.typescript.ScriptTarget.ES2020,
+          allowNonTsExtensions: true,
+          moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+          module: monaco.languages.typescript.ModuleKind.ESNext,
+          noEmit: true,
+          allowJs: true,
+          checkJs: true,
+          strict: false,
+          noImplicitAny: false,
+          allowUmdGlobalAccess: true,
+        });
 
-declare const violations: RuleViolation[];
+        defaults.setDiagnosticsOptions({
+          noSemanticValidation: false,
+          noSyntaxValidation: false,
+        });
 
-${getScheduleHelpersAsString()}
-      `,
-      'global-vars.d.ts'
-    );
-    console.log(scheduleTypeDefinitions);
-    console.log(getScheduleHelpersAsString());
-    // Configure TypeScript compiler options
-    monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
-      target: monaco.languages.typescript.ScriptTarget.ES2015,
-      allowNonTsExtensions: true,
-      moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
-      module: monaco.languages.typescript.ModuleKind.CommonJS,
-      noEmit: true,
-      allowJs: true,
-      checkJs: true,
-      strict: false,
-      noImplicitAny: false,
-      allowUmdGlobalAccess: true,
-    });
+        defaults.setEagerModelSync(true);
+      });
 
-    // Configure diagnostics
-    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-      noSemanticValidation: false,
-      noSyntaxValidation: false,
-    });
+      monacoDisposablesRef.current.push(
+        monaco.languages.typescript.typescriptDefaults.addExtraLib(
+          scheduleTypeDefinitions,
+          'file:///types/schedule-types.ts'
+        ),
+        monaco.languages.typescript.javascriptDefaults.addExtraLib(
+          scheduleTypeDefinitions,
+          'file:///types/schedule-types.js'
+        )
+      );
 
-    // Add custom autocomplete suggestions
-    monaco.languages.registerCompletionItemProvider('javascript', {
-      provideCompletionItems: (model, position) => {
-        const word = model.getWordUntilPosition(position);
-        const range = {
-          startLineNumber: position.lineNumber,
-          endLineNumber: position.lineNumber,
-          startColumn: word.startColumn,
-          endColumn: word.endColumn,
-        };
+      // Add custom autocomplete snippets for both TS and JS editor modes.
+      const completionProvider = {
+        triggerCharacters: ['.'],
+        provideCompletionItems: (model: monaco.editor.ITextModel, position: monaco.Position) => {
+          const word = model.getWordUntilPosition(position);
+          const range = {
+            startLineNumber: position.lineNumber,
+            endLineNumber: position.lineNumber,
+            startColumn: word.startColumn,
+            endColumn: word.endColumn,
+          };
 
-        const suggestions = [
+          const suggestions = [
           // Schedule properties
           {
             label: 'schedule.matches',
@@ -441,10 +470,34 @@ ${getScheduleHelpersAsString()}
             range: range,
           },
           {
+            label: 'ScheduleHelpers.groupMatchesByPlayer',
+            kind: monaco.languages.CompletionItemKind.Function,
+            insertText: 'ScheduleHelpers.groupMatchesByPlayer(${1:matches})',
+            documentation: 'Groups matches by player name - returns object with player names as keys',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            range: range,
+          },
+          {
+            label: 'ScheduleHelpers.getPlayersInMatch',
+            kind: monaco.languages.CompletionItemKind.Function,
+            insertText: 'ScheduleHelpers.getPlayersInMatch(${1:match})',
+            documentation: 'Gets all players participating in a match',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            range: range,
+          },
+          {
             label: 'ScheduleHelpers.getTeamMatches',
             kind: monaco.languages.CompletionItemKind.Function,
             insertText: 'ScheduleHelpers.getTeamMatches(${1:schedule}, "${2:teamName}")',
             documentation: 'Gets all matches for a specific team',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            range: range,
+          },
+          {
+            label: 'ScheduleHelpers.getPlayerMatches',
+            kind: monaco.languages.CompletionItemKind.Function,
+            insertText: 'ScheduleHelpers.getPlayerMatches(${1:schedule}, "${2:playerName}")',
+            documentation: 'Gets all matches for a specific player',
             insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
             range: range,
           },
@@ -473,22 +526,6 @@ ${getScheduleHelpersAsString()}
             range: range,
           },
           {
-            label: 'ScheduleHelpers.getMatchesInTimeSlot',
-            kind: monaco.languages.CompletionItemKind.Function,
-            insertText: 'ScheduleHelpers.getMatchesInTimeSlot(${1:schedule}, ${2:timeSlot})',
-            documentation: 'Gets matches in a specific time slot',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            range: range,
-          },
-          {
-            label: 'ScheduleHelpers.findConsecutiveMatches',
-            kind: monaco.languages.CompletionItemKind.Function,
-            insertText: 'ScheduleHelpers.findConsecutiveMatches(${1:schedule})',
-            documentation: 'Finds teams that have matches in consecutive time slots',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            range: range,
-          },
-          {
             label: 'ScheduleHelpers.getScheduleStats',
             kind: monaco.languages.CompletionItemKind.Function,
             insertText: 'ScheduleHelpers.getScheduleStats(${1:schedule})',
@@ -506,7 +543,7 @@ ${getScheduleHelpersAsString()}
               '  rule: "${1:Rule Name}",',
               '  description: `${2:Description of violation}`,',
               '  matches: [${3:affectedMatches}],',
-              '  severity: "${4|low,medium,high|}"',
+              '  level: "${4|note,warning,alert,critical|}"',
               '});',
             ].join('\n'),
             documentation: 'Template for creating a rule violation with all properties',
@@ -597,29 +634,41 @@ ${getScheduleHelpersAsString()}
             label: 'consecutiveGamesHelper',
             kind: monaco.languages.CompletionItemKind.Snippet,
             insertText: [
-              '// Use the helper function to find consecutive matches',
-              'const consecutiveMatches = ScheduleHelpers.findConsecutiveMatches(schedule);',
+              '// Use helper functions to find consecutive matches',
+              'const teamMatches = ScheduleHelpers.groupMatchesByTeam(schedule.matches);',
               '',
-              'consecutiveMatches.forEach(({ teamName, matches }) => {',
-              '  violations.push({',
-              '    rule: "${1:Consecutive games rule}",',
-              '    description: `Team ${teamName} has consecutive games at slots ${matches[0].timeSlot} and ${matches[1].timeSlot}`,',
-              '    matches: matches,',
-              '    severity: "${2|low,medium,high|}"',
-              '  });',
+              'Object.entries(teamMatches).forEach(([teamName, matches]) => {',
+              '  const sorted = [...matches].sort((a, b) => a.timeSlot - b.timeSlot);',
+              '  for (let i = 0; i < sorted.length - 1; i++) {',
+              '    if (ScheduleHelpers.areConsecutive(sorted[i], sorted[i + 1])) {',
+              '      violations.push({',
+              '        rule: "${1:Consecutive games rule}",',
+              '        description: `Team ${teamName} has consecutive games at slots ${sorted[i].timeSlot} and ${sorted[i + 1].timeSlot}`,',
+              '        matches: [sorted[i], sorted[i + 1]],',
+              '        level: "${2|note,warning,alert,critical|}"',
+              '      });',
+              '    }',
+              '  }',
               '});',
             ].join('\n'),
-            documentation: 'Use ScheduleHelpers.findConsecutiveMatches for simpler consecutive games checking',
+            documentation: 'Use ScheduleHelpers.groupMatchesByTeam + areConsecutive for back-to-back checks',
             insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
             range: range,
           },
         ];
 
-        return { suggestions: suggestions };
-      },
-    });
+          return { suggestions };
+        },
+      };
 
-    // Focus the editor
+      monacoDisposablesRef.current.push(
+        monaco.languages.registerCompletionItemProvider('typescript', completionProvider),
+        monaco.languages.registerCompletionItemProvider('javascript', completionProvider)
+      );
+
+      monacoConfiguredRef.current = true;
+    }
+
     editor.focus();
   }
 
